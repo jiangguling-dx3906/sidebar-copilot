@@ -1,8 +1,10 @@
 import { DEFAULT_SETTINGS, PRESETS, loadSettings, saveSettings } from './lib/settings.js';
 import { normalizeBaseUrl, describeStatus } from './lib/api.js';
+import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 
 const el = {
   presets: document.getElementById('presets'),
+  locale: document.getElementById('locale'),
   apiBase: document.getElementById('apiBase'),
   apiKey: document.getElementById('apiKey'),
   toggleKey: document.getElementById('toggleKey'),
@@ -34,6 +36,8 @@ init();
 
 async function init() {
   settings = await loadSettings();
+  setLocale(settings.locale);
+  applyI18n();
   fillForm(settings);
   renderPresets();
   updatePresetState();
@@ -42,13 +46,16 @@ async function init() {
 }
 
 function fillForm(values) {
+  el.locale.value = values.locale || 'auto';
   el.apiBase.value = values.apiBase || '';
   el.apiKey.value = values.apiKey || '';
   el.model.value = values.model || '';
   el.temperature.value = String(values.temperature ?? 0.3);
   el.temperatureLabel.textContent = Number(values.temperature ?? 0.3).toFixed(1);
   el.maxPageChars.value = String(values.maxPageChars ?? 14000);
-  el.maxCharsLabel.textContent = String(values.maxPageChars ?? 14000);
+  el.maxCharsLabel.textContent = Number(values.maxPageChars ?? 14000).toLocaleString(
+    getLocale() === 'en' ? 'en-US' : 'zh-CN',
+  );
   el.historyLimit.value = String(values.historyLimit ?? 12);
   el.historyLabel.textContent = String(values.historyLimit ?? 12);
   el.allowPageActions.checked = values.allowPageActions !== false;
@@ -65,6 +72,12 @@ function fillForm(values) {
   updateKeyHint(activePreset);
 }
 
+function presetLabel(preset) {
+  if (preset.id === 'custom') return t('options.presetCustom');
+  if (preset.id === 'ollama') return t('options.presetOllama');
+  return preset.label;
+}
+
 function renderPresets() {
   el.presets.textContent = '';
   for (const preset of PRESETS) {
@@ -72,7 +85,7 @@ function renderPresets() {
     button.type = 'button';
     button.className = 'preset';
     button.dataset.preset = preset.id;
-    button.textContent = preset.label;
+    button.textContent = presetLabel(preset);
     button.addEventListener('click', () => {
       activePreset = preset.id;
       if (preset.apiBase) el.apiBase.value = preset.apiBase;
@@ -93,13 +106,13 @@ function updatePresetState() {
 
 function updateKeyHint(presetId) {
   const preset = PRESETS.find((item) => item.id === presetId);
-  el.keyHint.textContent = '只保存在本机浏览器存储里，不会同步到云端。';
+  el.keyHint.textContent = t('options.keyHint');
   if (preset?.keyUrl) {
     const link = document.createElement('a');
     link.href = preset.keyUrl;
     link.target = '_blank';
     link.rel = 'noopener';
-    link.textContent = ' 获取 Key ↗';
+    link.textContent = t('options.getKeyLink');
     link.style.color = 'var(--accent-strong)';
     el.keyHint.appendChild(link);
   }
@@ -110,7 +123,9 @@ function bind() {
     el.temperatureLabel.textContent = Number(el.temperature.value).toFixed(1);
   });
   el.maxPageChars.addEventListener('input', () => {
-    el.maxCharsLabel.textContent = Number(el.maxPageChars.value).toLocaleString('zh-CN');
+    el.maxCharsLabel.textContent = Number(el.maxPageChars.value).toLocaleString(
+      getLocale() === 'en' ? 'en-US' : 'zh-CN',
+    );
   });
   el.historyLimit.addEventListener('input', () => {
     el.historyLabel.textContent = el.historyLimit.value;
@@ -119,31 +134,45 @@ function bind() {
     el.maxStepsLabel.textContent = el.maxAgentSteps.value;
   });
 
+  el.locale.addEventListener('change', () => {
+    setLocale(el.locale.value);
+    applyI18n();
+    renderPresets();
+    updatePresetState();
+    updateKeyHint(activePreset);
+    setStatus('');
+  });
+
   el.toggleKey.addEventListener('click', () => {
     const revealed = el.apiKey.type === 'text';
     el.apiKey.type = revealed ? 'password' : 'text';
-    el.toggleKey.textContent = revealed ? '显示' : '隐藏';
+    el.toggleKey.textContent = revealed ? t('options.show') : t('options.hide');
   });
 
   el.save.addEventListener('click', async () => {
     const values = readForm();
     if (!values.apiBase) {
-      setStatus('请填写 API 地址。', 'err');
+      setStatus(t('options.fillBase'), 'err');
       return;
     }
     settings = await saveSettings(values);
-    setStatus('已保存。回到侧边栏即可直接对话。', 'ok');
+    setLocale(values.locale);
+    applyI18n();
+    renderPresets();
+    updatePresetState();
+    updateKeyHint(activePreset);
+    setStatus(t('options.saved'), 'ok');
   });
 
   el.test.addEventListener('click', testConnection);
   el.clearChat.addEventListener('click', async () => {
     await chrome.storage.local.remove('conversation');
-    setStatus('对话记录已清除。', 'ok');
+    setStatus(t('options.cleared'), 'ok');
   });
 
   el.reset.addEventListener('click', () => {
-    fillForm(DEFAULT_SETTINGS);
-    setStatus('已填入默认值，点击“保存”后生效。');
+    fillForm({ ...DEFAULT_SETTINGS, locale: el.locale.value });
+    setStatus(t('options.resetDone'));
   });
 
   el.shortcutsLink.addEventListener('click', (event) => {
@@ -152,7 +181,7 @@ function bind() {
       ? 'edge://extensions/shortcuts'
       : 'chrome://extensions/shortcuts';
     chrome.tabs.create({ url }).catch(() => {
-      setStatus('请在浏览器的扩展管理页里找到“键盘快捷键”。');
+      setStatus(t('options.shortcutFail'));
     });
   });
 }
@@ -170,22 +199,23 @@ function readForm() {
     confirmActions: el.confirmActions.checked,
     maxAgentSteps: Number(el.maxAgentSteps.value),
     systemExtra: el.systemExtra.value.trim(),
+    locale: el.locale.value,
   };
 }
 
 async function testConnection() {
   const values = readForm();
   if (!values.apiBase) {
-    setStatus('请先填写 API 地址。', 'err');
+    setStatus(t('options.needBase'), 'err');
     return;
   }
   if (!values.apiKey && !/^http:\/\/(localhost|127\.0\.0\.1)/i.test(values.apiBase)) {
-    setStatus('请先填写 API Key。', 'err');
+    setStatus(t('options.needKey'), 'err');
     return;
   }
 
   el.test.disabled = true;
-  setStatus('正在测试连接…');
+  setStatus(t('options.testing'));
 
   const started = performance.now();
   try {
@@ -197,7 +227,7 @@ async function testConnection() {
       headers,
       body: JSON.stringify({
         model: values.model,
-        messages: [{ role: 'user', content: '只回复 OK 两个字母。' }],
+        messages: [{ role: 'user', content: t('options.testPrompt') }],
         max_tokens: 16,
         stream: false,
       }),
@@ -211,16 +241,19 @@ async function testConnection() {
     }
 
     const json = await response.json();
-    const reply = json?.choices?.[0]?.message?.content || '（空响应）';
+    const reply = json?.choices?.[0]?.message?.content || t('options.emptyReply');
     const elapsed = Math.round(performance.now() - started);
-    setStatus(`连接成功 · ${values.model} · ${elapsed}ms · 返回：${String(reply).slice(0, 40)}`, 'ok');
+    setStatus(
+      t('options.connected', { model: values.model, ms: elapsed, reply: String(reply).slice(0, 40) }),
+      'ok',
+    );
   } catch (error) {
     if (error?.name === 'TimeoutError') {
-      setStatus('连接超时（20 秒）。检查网络或 API 地址。', 'err');
+      setStatus(t('options.timeout'), 'err');
     } else if (error?.name === 'TypeError') {
-      setStatus('无法连接：地址不可达，或本地服务没有允许跨域（CORS）。', 'err');
+      setStatus(t('options.network'), 'err');
     } else {
-      setStatus(`连接失败：${error?.message || error}`, 'err');
+      setStatus(t('options.failed', { message: error?.message || error }), 'err');
     }
   } finally {
     el.test.disabled = false;

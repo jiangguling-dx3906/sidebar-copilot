@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>欢迎使用 Sidebar Copilot</title>
+    <title>Sidebar Copilot</title>
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
@@ -11,8 +11,8 @@
       <header class="hero">
         <img src="icons/icon128.png" alt="" class="hero-icon" />
         <div>
-          <h1>Sidebar Copilot 已安装</h1>
-          <p>在任意网页右侧打开 AI 侧边栏，让它读这页、答你的问题。</p>
+          <h1 data-i18n="welcome.title">Sidebar Copilot 已安装</h1>
+          <p data-i18n="welcome.subtitle">在任意网页右侧打开 AI 侧边栏，让它读这页、答你的问题。</p>
         </div>
       </header>
 
@@ -20,34 +20,27 @@
         <div class="steps">
           <div class="step">
             <span class="step-num">1</span>
-            <p>
-              填一个模型服务：默认是 <strong>DeepSeek</strong>，也可以用 OpenAI 兼容接口或本地
-              Ollama。只需要 API 地址、Key 和模型名。
-            </p>
+            <p data-i18n-html="welcome.step1"></p>
           </div>
           <div class="step">
             <span class="step-num">2</span>
-            <p>
-              打开任意普通网页，按 <strong>Alt+Shift+S</strong>，或点工具栏上的扩展图标，右侧就会展开侧边栏。
-            </p>
+            <p data-i18n-html="welcome.step2"></p>
           </div>
           <div class="step">
             <span class="step-num">3</span>
-            <p>
-              直接提问，或点“总结本页”。选中一段文字后右键，还能“解释所选内容”。也可以让它点按钮、填表、拖视频进度。页面内容会在发送时一并带上。
-            </p>
+            <p data-i18n-html="welcome.step3"></p>
           </div>
         </div>
 
         <div class="cta">
-          <button id="openOptions" class="primary" type="button">打开设置</button>
-          <button id="closeTab" class="ghost" type="button">关闭此页</button>
+          <button id="openOptions" class="primary" type="button" data-i18n="welcome.openSettings">打开设置</button>
+          <button id="closeTab" class="ghost" type="button" data-i18n="welcome.close">关闭此页</button>
         </div>
       </section>
 
       <footer class="foot">
-        <span>分析在本地完成，只有你发的请求会到达模型服务。</span>
-        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">获取 DeepSeek Key</a>
+        <span data-i18n="welcome.footer">分析在本地完成，只有你发的请求会到达模型服务。</span>
+        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" data-i18n="welcome.getKey">获取 DeepSeek Key</a>
       </footer>
     </main>
 

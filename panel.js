@@ -1,9 +1,10 @@
 import { renderMarkdown } from './lib/markdown.js';
 import { streamChat } from './lib/api.js';
 import { loadSettings, saveSettings, loadConversation, saveConversation } from './lib/settings.js';
-import { buildSystemPrompt, QUICK_PROMPTS } from './lib/prompts.js';
+import { buildSystemPrompt, getQuickPrompts } from './lib/prompts.js';
 import { PAGE_TOOLS, describeAction, isRiskyAction, actionStatusLabel } from './lib/agentTools.js';
 import { parseToolArguments } from './lib/toolcalls.js';
+import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,7 +24,7 @@ const els = {
   promptGrid: $('promptGrid'),
   messages: $('messages'),
   selectionChip: $('selectionChip'),
-  selectionCount: $('selectionCount'),
+  selectionText: $('selectionText'),
   clearSelection: $('clearSelection'),
   input: $('input'),
   inputWrap: $('inputWrap'),
@@ -63,14 +64,16 @@ const state = {
 /* ------------------------------------------------------------------ */
 
 init().catch((error) => {
-  setStatus(`初始化失败：${error?.message || error}`);
+  setStatus(t('panel.statusInitFailed', { message: error?.message || error }));
 });
 
 async function init() {
   bindEvents();
-  renderPrompts();
 
   state.settings = await loadSettings();
+  setLocale(state.settings.locale);
+  applyI18n();
+  renderPrompts();
   applySettings();
 
   state.messages = await loadConversation();
@@ -109,13 +112,13 @@ function bindEvents() {
 
   els.actionsToggle.addEventListener('click', async () => {
     if (!isScriptableUrl(state.tab?.url || state.page?.url)) {
-      toast('当前页面不允许扩展操作，切到普通网页再试');
+      toast(t('panel.toastActionsUnavailable'));
       return;
     }
     state.settings.allowPageActions = !state.settings.allowPageActions;
     await saveSettings(state.settings);
     applyActionsToggle();
-    toast(state.settings.allowPageActions ? '已允许 AI 操作页面' : '已关闭页面操作');
+    toast(state.settings.allowPageActions ? t('panel.toastActionsOn') : t('panel.toastActionsOff'));
   });
 
   els.refreshPage.addEventListener('click', () => readPage({ silent: false }));
@@ -152,12 +155,12 @@ function bindEvents() {
       const code = block?.querySelector('code')?.textContent || '';
       try {
         await navigator.clipboard.writeText(code);
-        copy.textContent = '已复制';
+        copy.textContent = t('common.copied');
         setTimeout(() => {
-          copy.textContent = '复制';
+          copy.textContent = t('common.copy');
         }, 1400);
       } catch {
-        toast('复制失败，请手动选择');
+        toast(t('panel.toastCopyFail'));
       }
       return;
     }
@@ -180,7 +183,15 @@ function bindEvents() {
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes.settings) return;
-    state.settings = { ...state.settings, ...changes.settings.newValue };
+    const next = changes.settings.newValue || {};
+    const localeChanged = next.locale !== state.settings.locale;
+    state.settings = { ...state.settings, ...next };
+    if (localeChanged) {
+      setLocale(state.settings.locale);
+      applyI18n();
+      renderPrompts();
+      renderAll();
+    }
     applySettings();
   });
 
@@ -191,7 +202,7 @@ function bindEvents() {
 
 function applySettings() {
   const settings = state.settings;
-  els.modelLabel.textContent = settings.model || '未选择模型';
+  els.modelLabel.textContent = settings.model || t('panel.noModel');
   els.attachToggle.checked = Boolean(settings.includePage);
   els.keyBanner.classList.toggle('hidden', hasCredentials(settings));
   applyActionsToggle();
@@ -209,14 +220,11 @@ function applyActionsToggle() {
   els.actionsToggle.classList.toggle('active', enabled && scriptable);
   els.actionsToggle.classList.toggle('unavailable', enabled && !scriptable);
   els.actionsToggle.setAttribute('aria-pressed', String(enabled && scriptable));
-  if (!scriptable) {
-    els.actionsToggle.title =
-      '当前页面不允许扩展操作（浏览器内部页、扩展商店、PDF 等）。切到普通网页后再试。';
-  } else {
-    els.actionsToggle.title = enabled
-      ? 'AI 可以操作页面（点击/输入/拖拽/视频控制）。点击关闭。'
-      : 'AI 只能阅读，不能操作页面。点击开启。';
-  }
+  els.actionsToggle.title = !scriptable
+    ? t('panel.actionsUnavailable')
+    : enabled
+      ? t('panel.actionsOn')
+      : t('panel.actionsOff');
 }
 
 function hasCredentials(settings) {
@@ -229,13 +237,15 @@ function setStatus(text) {
     els.status.textContent = text;
     return;
   }
-  const model = state.settings?.model || '未配置';
+  const model = state.settings?.model || t('panel.noModel');
   if (state.page) {
-    const parts = [`${formatNumber(state.page.charCount)} 字`, model];
-    if (state.useSelection && state.selection) parts.push(`选中 ${formatNumber(state.selection.length)} 字`);
+    const parts = [t('panel.statusChars', { count: formatNumber(state.page.charCount) }), model];
+    if (state.useSelection && state.selection) {
+      parts.push(t('panel.statusSelection', { count: formatNumber(state.selection.length) }));
+    }
     els.status.textContent = parts.join(' · ');
   } else {
-    els.status.textContent = state.pageLoading ? '正在读取页面…' : model;
+    els.status.textContent = state.pageLoading ? t('panel.statusReading') : model;
   }
 }
 
@@ -262,7 +272,7 @@ async function getActiveTab() {
 async function readPage({ silent = false } = {}) {
   if (state.pageLoading) return;
   state.pageLoading = true;
-  setStatus('正在读取页面…');
+  setStatus(t('panel.statusReading'));
 
   try {
     const tab = await getActiveTab();
@@ -274,8 +284,8 @@ async function readPage({ silent = false } = {}) {
       state.selection = '';
       state.useSelection = false;
       renderPageBar({
-        title: tab?.title || '这个页面读不到',
-        sub: '浏览器内部页面、扩展商店等不允许扩展读取',
+        title: tab?.title || t('panel.pageUnsupportedTitle'),
+        sub: t('panel.pageUnsupportedSub'),
         favicon: tab?.favIconUrl,
       });
       return;
@@ -292,7 +302,7 @@ async function readPage({ silent = false } = {}) {
     });
 
     const page = injection?.result;
-    if (!page) throw new Error('页面没有返回可读内容');
+    if (!page) throw new Error(t('panel.pageNoContent'));
 
     const pageChanged = state.page?.url !== page.url;
     state.page = page;
@@ -305,12 +315,12 @@ async function readPage({ silent = false } = {}) {
     }
 
     renderPageBar({
-      title: page.title || tab.title || '未命名页面',
+      title: page.title || tab.title || t('panel.untitled'),
       sub: [
         page.site || hostOf(page.url),
-        `${formatNumber(page.charCount)} 字`,
-        page.truncated ? '已截断' : '',
-        page.links?.length ? `${page.links.length} 个链接` : '',
+        t('panel.statusChars', { count: formatNumber(page.charCount) }),
+        page.truncated ? t('panel.truncated') : '',
+        page.links?.length ? t('panel.links', { count: page.links.length }) : '',
       ]
         .filter(Boolean)
         .join(' · '),
@@ -319,11 +329,11 @@ async function readPage({ silent = false } = {}) {
   } catch (error) {
     state.page = null;
     renderPageBar({
-      title: '无法读取此页面',
+      title: t('panel.pageUnreadableTitle'),
       sub: explainInjectionError(error),
       favicon: state.tab?.favIconUrl,
     });
-    if (!silent) toast('这个页面无法读取');
+    if (!silent) toast(t('panel.toastCannotRead'));
   } finally {
     state.pageLoading = false;
     updateSelectionChip();
@@ -337,9 +347,9 @@ async function readPage({ silent = false } = {}) {
 function explainInjectionError(error) {
   const message = String(error?.message || error);
   if (/Cannot access contents of url|The extensions gallery cannot be scripted|Missing host permission/i.test(message)) {
-    return '受浏览器保护的页面（设置、商店、PDF 等）无法注入脚本';
+    return t('panel.protectedPage');
   }
-  if (/No tab with id/i.test(message)) return '标签页已关闭，请切换页面后重试';
+  if (/No tab with id/i.test(message)) return t('panel.tabClosed');
   return message.slice(0, 120);
 }
 
@@ -363,20 +373,25 @@ function hostOf(url) {
 function updateSelectionChip() {
   const active = Boolean(state.selection && state.useSelection);
   els.selectionChip.classList.toggle('hidden', !active);
-  if (active) els.selectionCount.textContent = String(state.selection.length);
+  if (active) {
+    els.selectionChip.dataset.count = String(state.selection.length);
+    els.selectionText.textContent = t('panel.selectionChip', { count: state.selection.length });
+  } else {
+    els.selectionChip.dataset.count = '0';
+  }
   renderPrompts();
 }
 
 function updateEmptyHint() {
   if (state.page) {
-    els.emptyHint.textContent = `已读取「${state.page.title || hostOf(state.page.url)}」，共 ${formatNumber(
-      state.page.charCount,
-    )} 字。`;
+    els.emptyHint.textContent = t('panel.emptyHintRead', {
+      title: state.page.title || hostOf(state.page.url),
+      count: formatNumber(state.page.charCount),
+    });
   } else if (!isScriptableUrl(state.tab?.url)) {
-    els.emptyHint.textContent =
-      '这是浏览器内部页面，扩展无法读取或操作。打开一个普通网页（http/https）再试。';
+    els.emptyHint.textContent = t('panel.emptyHintInternal');
   } else {
-    els.emptyHint.textContent = '当前页面读不到正文，但你仍然可以提问或让我检查页面。';
+    els.emptyHint.textContent = t('panel.emptyHintUnreadable');
   }
 }
 
@@ -386,7 +401,7 @@ function updateEmptyHint() {
 
 function renderPrompts() {
   els.promptGrid.textContent = '';
-  for (const prompt of QUICK_PROMPTS) {
+  for (const prompt of getQuickPrompts()) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'prompt-card';
@@ -400,7 +415,7 @@ function renderPrompts() {
 
     button.append(label, arrow);
     button.disabled = Boolean(prompt.needsSelection && !state.selection);
-    button.title = prompt.needsSelection && !state.selection ? '先在页面上选中一段文字' : prompt.label;
+    button.title = prompt.needsSelection && !state.selection ? t('panel.selectFirst') : prompt.label;
     button.addEventListener('click', () => runPrompt(prompt));
 
     els.promptGrid.appendChild(button);
@@ -409,7 +424,7 @@ function renderPrompts() {
 
 function runPrompt(prompt) {
   if (prompt.needsSelection && !state.selection) {
-    toast('先在页面上选中一段文字');
+    toast(t('panel.toastNoSelection'));
     return;
   }
   if (prompt.needsSelection) {
@@ -429,7 +444,7 @@ async function send(rawText) {
 
   if (!hasCredentials(state.settings)) {
     els.keyBanner.classList.remove('hidden');
-    toast('先配置 API Key');
+    toast(t('panel.toastNeedKey'));
     return;
   }
 
@@ -505,7 +520,7 @@ async function runAgent() {
       if (runId !== state.runId) return;
 
       if (!allowTools || !result.toolCalls || result.toolCalls.length === 0) {
-        if (!assistant.content.trim()) assistant.content = '（模型返回了空内容，可以点重试。）';
+        if (!assistant.content.trim()) assistant.content = t('panel.emptyResponse');
         updateMessage(assistant, index);
         break;
       }
@@ -531,14 +546,14 @@ async function runAgent() {
         if (runId !== state.runId) return;
         if (controller.signal.aborted) {
           action.status = 'skipped';
-          action.error = '已停止';
+          action.error = t('panel.stopped');
           pushToolResult(action);
           continue;
         }
 
         if (action.args == null) {
           action.status = 'error';
-          action.error = '工具参数不是合法 JSON';
+          action.error = t('panel.invalidArgs');
           updateMessage(assistant, index);
           pushToolResult(action);
           continue;
@@ -548,21 +563,21 @@ async function runAgent() {
         if (runId !== state.runId) return;
         if (!approved) {
           action.status = 'skipped';
-          action.error = '用户跳过了这个操作';
+          action.error = t('panel.skippedByUser');
           updateMessage(assistant, index);
           pushToolResult(action);
           continue;
         }
 
         action.status = 'running';
-        els.status.textContent = '正在操作页面…';
+        els.status.textContent = t('panel.statusOperating');
         updateMessage(assistant, index);
         try {
           action.result = await executeTool(action);
           action.status = 'ok';
         } catch (error) {
           action.status = 'error';
-          action.error = error?.message || String(error);
+          action.error = localizeActionError(error?.message || String(error));
         }
         updateMessage(assistant, index);
         pushToolResult(action);
@@ -571,7 +586,7 @@ async function runAgent() {
       if (controller.signal.aborted) {
         assistant.stopped = true;
         assistant.streaming = false;
-        if (!assistant.content.trim()) assistant.content = '（已停止）';
+        if (!assistant.content.trim()) assistant.content = t('panel.stopped');
         updateMessage(assistant, index);
         break;
       }
@@ -582,18 +597,18 @@ async function runAgent() {
       if (lastAssistant) {
         lastAssistant.stopped = true;
         if (!lastAssistant.content.trim() && !lastAssistant.actions?.length) {
-          lastAssistant.content = '（已停止）';
+          lastAssistant.content = t('panel.stopped');
         }
       }
     } else if (lastAssistant) {
-      lastAssistant.error = error?.message || '请求失败，请稍后重试。';
+      lastAssistant.error = error?.message || t('panel.requestFailed');
     }
   } finally {
     if (runId === state.runId) {
       if (lastAssistant) {
         lastAssistant.streaming = false;
         if (exhausted && !lastAssistant.content.trim() && lastAssistant.actions?.length) {
-          lastAssistant.content = `（已达到最大操作轮数 ${maxRounds}，先停在这里。需要继续的话再发一条消息。）`;
+          lastAssistant.content = t('panel.maxRounds', { n: maxRounds });
         }
         updateMessage(lastAssistant, state.messages.indexOf(lastAssistant));
       }
@@ -660,21 +675,21 @@ function confirmIfNeeded(action, assistant) {
 }
 
 async function executeTool(action) {
-  if (state.tabId == null) throw new Error('没有可操作的标签页');
+  if (state.tabId == null) throw new Error(t('panel.noTab'));
   const tab = await getActiveTab().catch(() => null);
   if (tab?.id != null && tab.id !== state.tabId) {
-    throw new Error('当前标签页已切换，已停止页面操作');
+    throw new Error(t('panel.tabChanged'));
   }
 
   if (action.name === 'wait_for') {
     const result = await waitFor(action.args || {});
-    if (!result.ok) throw new Error(result.error || '等待超时');
+    if (!result.ok) throw new Error(result.error || t('panel.waitTimeoutShort'));
     return result;
   }
 
   if (action.name === 'read_page') {
     const result = await injectAction('read_page', {});
-    if (!result?.ok) throw new Error(result?.error || '读取页面失败');
+    if (!result?.ok) throw new Error(result?.error || t('panel.readFailed'));
     return result;
   }
 
@@ -683,8 +698,8 @@ async function executeTool(action) {
     action.args || {},
     action.name === 'control_media' ? { allFrames: true } : {},
   );
-  if (!result) throw new Error('页面没有返回结果');
-  if (result.ok === false) throw new Error(result.error || '操作失败');
+  if (!result) throw new Error(t('panel.noResult'));
+  if (result.ok === false) throw new Error(result.error || t('panel.actionFailed'));
 
   if (action.name === 'open_url') {
     await sleep(1800);
@@ -708,11 +723,11 @@ async function injectAction(name, args, options = {}) {
   const run = async () => {
     const injections = await chrome.scripting.executeScript({
       target,
-      func: (actionName, actionArgs) =>
+      func: (actionName, actionArgs, fallback) =>
         window.__SC_ACT__
           ? window.__SC_ACT__(actionName, actionArgs)
-          : { ok: false, error: '页面脚本未就绪，请刷新页面' },
-      args: [name, args],
+          : { ok: false, code: 'SCRIPT_NOT_READY', error: fallback },
+      args: [name, args, t('panel.scriptNotReady')],
     });
     const values = injections.map((injection) => injection?.result).filter(Boolean);
     if (!allFrames) return values[0] ?? null;
@@ -728,7 +743,7 @@ async function injectAction(name, args, options = {}) {
     result = await run();
   }
 
-  if (!result || (result.ok === false && /页面脚本未就绪/.test(result.error || ''))) {
+  if (!result || result.code === 'SCRIPT_NOT_READY') {
     await chrome.scripting.executeScript({ target, files: ['content.js'] });
     result = await run();
   }
@@ -757,11 +772,43 @@ async function waitFor(args) {
     }
     await sleep(300);
   }
-  return { ok: false, error: `等待超时（${timeout}ms）：${query || args.text}` };
+  return { ok: false, error: t('panel.waitTimeout', { ms: timeout, query: query || args.text }) };
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function localizeActionError(message) {
+  if (getLocale() !== 'en') return message;
+  const rules = [
+    [/^ref "(.+)" 已失效.*$/, 'ref "$1" is stale; run inspect_page again'],
+    [/^找不到元素：(.+)$/, 'Element not found: $1'],
+    [/^元素存在但不可见$/, 'Element exists but is not visible'],
+    [/^页面上找不到包含 “(.+)” 的可点击元素$/, 'No clickable element contains “$1”'],
+    [/^需要 ref、selector 或 text 之一$/, 'Provide ref, selector, or text'],
+    [/^“(.+)”处于禁用状态$/, '“$1” is disabled'],
+    [/^拒绝填写密码字段.*$/, 'Refusing to fill a password field; ask the user to type it'],
+    [/^不支持填写 type=(.+) 的输入框$/, 'Unsupported input type=$1'],
+    [/^目标不是可输入的输入框$/, 'Target is not an editable field'],
+    [/^目标不是原生 <select>.*$/, 'Target is not a native <select>; use click + option'],
+    [/^找不到选项“(.+)”$/, 'Option not found: “$1”'],
+    [/^目标不是 input\[type=range\].*$/, 'Target is not input[type=range]; use drag'],
+    [/^需要 percent 或 value$/, 'Provide percent or value'],
+    [/^页面上没有找到 <video> 或 <audio>$/, 'No <video> or <audio> found on the page'],
+    [/^媒体还没加载出时长.*$/, 'Media duration is not available yet; wait for it to load or press play'],
+    [/^seek 需要 percent 或 seconds$/, 'seek needs percent or seconds'],
+    [/^volume 需要.*$/, 'volume needs volume (0-1) or percent'],
+    [/^rate 需要.*$/, 'rate needs a number between 0.25 and 4'],
+    [/^未知媒体操作：(.+)$/, 'Unknown media action: $1'],
+    [/^需要 to，或 dx\/dy 之一$/, 'Provide to, or dx/dy'],
+    [/^URL 不合法$/, 'Invalid URL'],
+    [/^只允许 http\(s\)，收到 (.+)$/, 'Only http(s) URLs are allowed; got $1'],
+  ];
+  for (const [pattern, replacement] of rules) {
+    if (pattern.test(message)) return message.replace(pattern, replacement);
+  }
+  return message;
 }
 
 function stopStreaming() {
@@ -807,7 +854,7 @@ function newChat() {
   persist();
   updateEmptyState();
   els.input.focus();
-  toast('已开始新对话');
+  toast(t('panel.toastNewChat'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -896,7 +943,7 @@ function buildError(text, index) {
 
   const retry = document.createElement('button');
   retry.type = 'button';
-  retry.textContent = '重试';
+  retry.textContent = t('common.retry');
   retry.dataset.retry = String(index);
   box.appendChild(document.createElement('br'));
   box.appendChild(retry);
@@ -945,21 +992,21 @@ function buildActionCard(action) {
     const row = document.createElement('div');
     row.className = 'action-confirm';
     const hint = document.createElement('span');
-    hint.textContent = action.confirm.risky ? '这一步可能不可逆，确认执行？' : '允许这次操作？';
+    hint.textContent = action.confirm.risky ? t('panel.confirmRisky') : t('panel.confirmNormal');
 
     const allow = document.createElement('button');
     allow.type = 'button';
     allow.className = 'allow';
     allow.dataset.confirm = 'yes';
     allow.dataset.actionId = action.id;
-    allow.textContent = '允许';
+    allow.textContent = t('common.allow');
 
     const skip = document.createElement('button');
     skip.type = 'button';
     skip.className = 'skip';
     skip.dataset.confirm = 'no';
     skip.dataset.actionId = action.id;
-    skip.textContent = '跳过';
+    skip.textContent = t('common.skip');
 
     row.append(hint, allow, skip);
     card.appendChild(row);
@@ -969,7 +1016,7 @@ function buildActionCard(action) {
     const details = document.createElement('details');
     details.className = 'action-result';
     const summary = document.createElement('summary');
-    summary.textContent = '查看结果';
+    summary.textContent = t('common.viewResult');
     const pre = document.createElement('pre');
     pre.textContent = JSON.stringify(action.result, null, 2).slice(0, 2400);
     details.append(summary, pre);
@@ -1001,8 +1048,8 @@ function setBusy(busy) {
   state.busy = busy;
   els.send.classList.toggle('stop', busy);
   els.sendIcon.innerHTML = busy ? ICONS.stop : ICONS.send;
-  els.send.title = busy ? '停止' : '发送';
-  els.send.setAttribute('aria-label', busy ? '停止' : '发送');
+  els.send.title = busy ? t('common.stop') : t('common.send');
+  els.send.setAttribute('aria-label', busy ? t('common.stop') : t('common.send'));
   updateSendState();
 }
 
@@ -1026,8 +1073,10 @@ function persist() {
 
 function formatNumber(value) {
   const number = Number(value) || 0;
-  if (number >= 10000) return `${(number / 10000).toFixed(1)} 万`;
-  return number.toLocaleString('zh-CN');
+  if (number >= 10000) {
+    return getLocale() === 'en' ? `${(number / 1000).toFixed(1)}k` : `${(number / 10000).toFixed(1)} 万`;
+  }
+  return number.toLocaleString(getLocale() === 'en' ? 'en-US' : 'zh-CN');
 }
 
 function toast(text) {

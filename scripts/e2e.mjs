@@ -119,6 +119,14 @@ const REPLY_CHUNKS = [
   '```js\nconst reply = await client.chat.completions.create({ model: "deepseek-chat" });\n```\n',
 ];
 
+const REPLY_CHUNKS_EN = [
+  '## Takeaway\n\nDeepSeek released **V4** with a 1M-token context window, at the same price as V3.\n\n',
+  '## Key points\n\n1. Context grows from 128K to 1M tokens\n2. Math and coding benchmarks improve by about **12%**\n3. API pricing is unchanged from V3\n\n',
+  '> Longer context makes agent workflows more reliable.\n\n',
+  '## Pricing\n\n| Model | Input | Output |\n| --- | --- | --- |\n| V3 | 0.27 | 1.10 |\n| V4 | 0.27 | 1.10 |\n\n',
+  '```js\nconst reply = await client.chat.completions.create({ model: "deepseek-chat" });\n```\n',
+];
+
 function sseBody(chunks) {
   return (
     chunks
@@ -297,6 +305,7 @@ async function main() {
         allowPageActions: true,
         confirmActions: false,
         maxAgentSteps: 6,
+        locale: 'zh',
         systemExtra: '',
       },
     );
@@ -336,7 +345,8 @@ async function main() {
         });
 
       if (mock.mode === 'summary') {
-        await fulfill(sseBody(REPLY_CHUNKS));
+        const english = String(requestBody?.messages?.[0]?.content || '').startsWith('You are Sidebar Copilot');
+        await fulfill(sseBody(english ? REPLY_CHUNKS_EN : REPLY_CHUNKS));
         return;
       }
 
@@ -423,7 +433,7 @@ async function main() {
     await panel.waitForSelector('#selectionChip:not(.hidden)', { timeout: 15000 });
     const selectionChip = await panel.evaluate(() => ({
       text: document.getElementById('selectionChip').textContent,
-      count: Number(document.getElementById('selectionCount').textContent),
+      count: Number(document.getElementById('selectionChip').dataset.count),
     }));
     check('selection chip appears', selectionChip.count > 0, selectionChip.text);
 
@@ -562,6 +572,53 @@ async function main() {
 
     await shot(panel, 'panel-media.png');
 
+    // --- English UI and prompt ------------------------------------------
+    await panel.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set({ settings: { ...settings, locale: 'en' } }, resolve);
+          });
+        }),
+    );
+    await panel.goto(`chrome-extension://${extensionId}/panel.html?standalone=1&tabId=${fixtureTabId}`);
+    await panel.waitForFunction(
+      () => (document.getElementById('pageTitle')?.textContent || '').includes('DeepSeek V4'),
+      null,
+      { timeout: 20000 },
+    );
+    await panel.click('#newChat');
+    mock.mode = 'summary';
+    agentBodies = [];
+
+    const enUi = await panel.evaluate(() => ({
+      prompt: document.querySelector('.prompt-card[data-prompt="summary"]')?.textContent || '',
+      placeholder: document.getElementById('input')?.placeholder || '',
+      status: document.getElementById('status')?.textContent || '',
+    }));
+    check('English quick prompt', enUi.prompt.includes('Summarize page'), enUi.prompt);
+    check('English input placeholder', enUi.placeholder.includes('Ask anything'), enUi.placeholder);
+    check('English status uses chars', /chars/.test(enUi.status), enUi.status);
+    await shot(panel, 'panel-empty-en.png');
+
+    await panel.click('.prompt-card[data-prompt="summary"]');
+    await panel.waitForFunction(() => !document.querySelector('.msg.assistant .caret'), null, {
+      timeout: 15000,
+    });
+    const enSystem = requestBody?.messages?.[0]?.content || '';
+    check('English system prompt', enSystem.startsWith('You are Sidebar Copilot'), enSystem.slice(0, 40));
+    check('English action rules', enSystem.includes('## Page actions'), '');
+    await shot(panel, 'panel-en.png');
+
+    await panel.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set({ settings: { ...settings, locale: 'zh' } }, resolve);
+          });
+        }),
+    );
+
     const options = await context.newPage();
     watch(options, 'options');
     await options.setViewportSize({ width: 900, height: 1100 });
@@ -576,6 +633,33 @@ async function main() {
     check('options highlights the custom preset', optionsState.preset === '自定义', optionsState.preset);
     check('options exposes the page-action switch', optionsState.allowActions === true, String(optionsState.allowActions));
     await shot(options, 'options.png', { fullPage: true });
+
+    await options.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set({ settings: { ...settings, locale: 'en' } }, resolve);
+          });
+        }),
+    );
+    await options.reload();
+    await options.waitForSelector('#apiBase');
+    const enOptions = await options.evaluate(() => ({
+      heading: document.querySelector('h2')?.textContent || '',
+      save: document.getElementById('save')?.textContent || '',
+    }));
+    check('English options heading', enOptions.heading.includes('Model provider'), enOptions.heading);
+    check('English save button', enOptions.save === 'Save', enOptions.save);
+    await shot(options, 'options-en.png', { fullPage: true });
+
+    await options.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set({ settings: { ...settings, locale: 'zh' } }, resolve);
+          });
+        }),
+    );
 
     const welcome = await context.newPage();
     watch(welcome, 'welcome');

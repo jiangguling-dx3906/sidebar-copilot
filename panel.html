@@ -17,17 +17,27 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="newChat" class="icon-btn" title="新对话" aria-label="新对话">
+          <button
+            id="newChat"
+            class="icon-btn"
+            data-i18n-title="common.newChat"
+            data-i18n-aria-label="common.newChat"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
-          <button id="actionsToggle" class="icon-btn" title="允许 AI 操作页面" aria-label="允许 AI 操作页面" aria-pressed="true">
+          <button id="actionsToggle" class="icon-btn" aria-pressed="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M5 3.5 12 20l2.2-6.2L20.5 11 5 3.5Z" />
             </svg>
           </button>
-          <button id="openSettings" class="icon-btn" title="设置" aria-label="设置">
+          <button
+            id="openSettings"
+            class="icon-btn"
+            data-i18n-title="common.settings"
+            data-i18n-aria-label="common.settings"
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <path d="M4 7h9M19 7h1M4 17h3M13 17h7" />
               <circle cx="15" cy="7" r="2.2" />
@@ -40,14 +50,19 @@
       <section class="pagebar" id="pagebar">
         <img id="pageFavicon" class="page-favicon" alt="" />
         <div class="page-meta">
-          <div class="page-title" id="pageTitle">正在读取页面…</div>
+          <div class="page-title" id="pageTitle" data-i18n="panel.statusReading">正在读取页面…</div>
           <div class="page-sub" id="pageSub">—</div>
         </div>
-        <label class="switch" title="发送时附带页面内容">
+        <label class="switch" data-i18n-title="panel.attachTitle">
           <input type="checkbox" id="attachToggle" checked />
           <span></span>
         </label>
-        <button id="refreshPage" class="icon-btn small" title="重新读取页面" aria-label="重新读取页面">
+        <button
+          id="refreshPage"
+          class="icon-btn small"
+          data-i18n-title="common.refresh"
+          data-i18n-aria-label="common.refresh"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 11a8 8 0 1 0-2.3 5.6" />
             <path d="M20 5v6h-6" />
@@ -56,15 +71,15 @@
       </section>
 
       <div class="banner hidden" id="keyBanner">
-        <div>还没有配置 API Key，配置后才能对话。</div>
-        <button id="bannerSettings" class="text-btn">去设置</button>
+        <div data-i18n="panel.banner">还没有配置 API Key，配置后才能对话。</div>
+        <button id="bannerSettings" class="text-btn" data-i18n="panel.bannerAction">去设置</button>
       </div>
 
       <main class="scroll" id="scroll">
         <div class="empty" id="emptyState">
           <img src="icons/icon128.png" alt="" class="empty-icon" />
-          <h2>就这个页面，问点什么</h2>
-          <p id="emptyHint">我会读取当前页面的正文，再结合它回答。</p>
+          <h2 data-i18n="panel.emptyTitle">就这个页面，问点什么</h2>
+          <p id="emptyHint"></p>
           <div class="prompt-grid" id="promptGrid"></div>
         </div>
         <div class="messages" id="messages"></div>
@@ -73,23 +88,23 @@
       <footer class="composer">
         <div class="selection-chip hidden" id="selectionChip">
           <span class="dot"></span>
-          <span>已引用选中内容 <b id="selectionCount">0</b> 字</span>
-          <button id="clearSelection" title="取消引用" aria-label="取消引用">
+          <span id="selectionText"></span>
+          <button id="clearSelection" data-i18n-title="panel.clearSelection" data-i18n-aria-label="panel.clearSelection">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </div>
         <div class="input-wrap" id="inputWrap">
-          <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
-          <button id="send" class="send-btn" title="发送" aria-label="发送" disabled>
+          <textarea id="input" rows="1" data-i18n-placeholder="panel.placeholder"></textarea>
+          <button id="send" class="send-btn" data-i18n-title="common.send" data-i18n-aria-label="common.send" disabled>
             <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 19V5M6 11l6-6 6 6" />
             </svg>
           </button>
         </div>
         <div class="statusbar">
-          <span id="status">正在初始化…</span>
+          <span id="status" data-i18n="panel.statusInit">正在初始化…</span>
           <span class="kbd">Alt+Shift+S</span>
         </div>
       </footer>

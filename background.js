@@ -1,3 +1,6 @@
+import { loadSettings } from './lib/settings.js';
+import { setLocale, t } from './lib/i18n.js';
+
 const PANEL_PATH = 'panel.html';
 
 async function enablePanel() {
@@ -13,16 +16,22 @@ async function enablePanel() {
   }
 }
 
-function createMenus() {
+async function createMenus() {
+  try {
+    const settings = await loadSettings();
+    setLocale(settings.locale);
+  } catch {
+    /* fall back to the detected locale */
+  }
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'sc-explain-selection',
-      title: '用 Sidebar Copilot 解释所选内容',
+      title: t('menu.explain'),
       contexts: ['selection'],
     });
     chrome.contextMenus.create({
       id: 'sc-summarize-page',
-      title: '用 Sidebar Copilot 总结此页',
+      title: t('menu.summarize'),
       contexts: ['page'],
     });
   });
@@ -45,6 +54,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 chrome.runtime.onStartup.addListener(() => {
   enablePanel();
   createMenus();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) createMenus();
 });
 
 async function openPanelFor(tab) {

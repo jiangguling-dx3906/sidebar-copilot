@@ -4,16 +4,17 @@
 
 An Edge / Chrome side panel extension that opens an AI chat panel beside any web page. It reads the current page's text, title, tables, and selection, then answers questions grounded in that page — and it can also operate the page for you: click, type, drag, scroll, and control video playback.
 
-![Sidebar chat](docs/screenshots/panel-chat.png)
+![Sidebar chat](docs/screenshots/panel-en.png)
 
 | Empty state | Settings |
 | --- | --- |
-| ![Empty state](docs/screenshots/panel-empty.png) | ![Settings](docs/screenshots/options.png) |
+| ![Empty state](docs/screenshots/panel-empty-en.png) | ![Settings](docs/screenshots/options-en.png) |
 
 ## What it does
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
 - **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
+- **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together.
 - **Side panel UI**: `chrome.sidePanel`, non-intrusive and width-adaptive; follows the active tab.
 - **Selection as context**: select text on the page and the panel shows a “selected content” chip; the context menu also offers “Explain selection”.
 - **Summarize from the context menu**: right-click → “Summarize this page with Sidebar Copilot”.
@@ -222,6 +223,7 @@ sidebar-copilot/
 │  ├─ markdown.js         safe Markdown → HTML
 │  ├─ prompts.js          system prompt, page trimming, quick prompts
 │  ├─ agentTools.js       page-action tool definitions, labels, risk detection
+│  ├─ i18n.js             Chinese/English UI strings and locale switching
 │  └─ settings.js         defaults and local storage
 ├─ icons/                 16/32/48/128 icons
 ├─ scripts/               icon generation, Playwright E2E
