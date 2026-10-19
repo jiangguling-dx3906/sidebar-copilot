@@ -1,6 +1,7 @@
 import { renderMarkdown } from './lib/markdown.js';
 import { streamChat } from './lib/api.js';
-import { loadSettings, saveSettings, loadConversation, saveConversation } from './lib/settings.js';
+import { loadSettings, saveSettings } from './lib/settings.js';
+import { loadSessions, saveSessions, newSession, sessionTitle, slimMessages, slimSessions } from './lib/sessions.js';
 import { buildSystemPrompt, getQuickPrompts } from './lib/prompts.js';
 import { PAGE_TOOLS, describeAction, isRiskyAction, actionStatusLabel } from './lib/agentTools.js';
 import { parseToolArguments } from './lib/toolcalls.js';
@@ -34,6 +35,13 @@ const els = {
   sendIcon: $('sendIcon'),
   status: $('status'),
   newChat: $('newChat'),
+  historyBtn: $('historyBtn'),
+  historyDrawer: $('historyDrawer'),
+  closeHistory: $('closeHistory'),
+  historyList: $('historyList'),
+  historyCount: $('historyCount'),
+  saveHistoryToggle: $('saveHistoryToggle'),
+  exportAll: $('exportAll'),
   openSettings: $('openSettings'),
   actionsToggle: $('actionsToggle'),
   toast: $('toast'),
@@ -61,6 +69,9 @@ const state = {
   toastTimer: 0,
   voice: null,
   voiceBase: '',
+  sessions: [],
+  activeSessionId: null,
+  historyOpen: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -80,9 +91,15 @@ async function init() {
   renderPrompts();
   applySettings();
 
-  state.messages = await loadConversation();
+  const history = await loadSessions();
+  state.sessions = history.sessions;
+  state.activeSessionId = history.activeSessionId;
+  const active = state.sessions.find((session) => session.id === state.activeSessionId);
+  state.messages = active?.messages || [];
+  els.saveHistoryToggle.checked = state.settings.saveHistory !== false;
   rebuildApiHistory();
   renderAll();
+  renderHistory();
 
   await readPage({ silent: true });
   await handlePendingAction();
@@ -111,6 +128,39 @@ function bindEvents() {
   });
 
   els.newChat.addEventListener('click', newChat);
+  els.historyBtn.addEventListener('click', openHistory);
+  els.closeHistory.addEventListener('click', closeHistory);
+  els.exportAll.addEventListener('click', () => {
+    if (state.sessions.length === 0) {
+      toast(t('history.empty'));
+      return;
+    }
+    exportSessions(state.sessions, 'all');
+  });
+  els.historyList.addEventListener('click', (event) => {
+    const load = event.target.closest('[data-load]');
+    if (load) {
+      switchSession(load.dataset.load);
+      return;
+    }
+    const exportButton = event.target.closest('[data-export]');
+    if (exportButton) {
+      const session = state.sessions.find((item) => item.id === exportButton.dataset.export);
+      if (session) exportSessions([session], session.title || 'conversation');
+      return;
+    }
+    const deleteButton = event.target.closest('[data-delete]');
+    if (deleteButton) deleteSession(deleteButton.dataset.delete);
+  });
+  els.saveHistoryToggle.addEventListener('change', async () => {
+    state.settings.saveHistory = els.saveHistoryToggle.checked;
+    await saveSettings(state.settings);
+    if (state.settings.saveHistory) {
+      persist();
+    } else {
+      toast(t('history.disabled'));
+    }
+  });
   els.openSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
   els.bannerSettings.addEventListener('click', () => chrome.runtime.openOptionsPage());
 
@@ -852,16 +902,185 @@ function newChat() {
   state.runId += 1;
   state.controller = null;
   setBusy(false);
-  state.messages = [];
+
+  if (state.messages.length === 0) {
+    closeHistory();
+    els.input.focus();
+    toast(t('panel.toastNewChat'));
+    return;
+  }
+
+  persist();
+
+  const session = newSession();
+  state.sessions.unshift(session);
+  state.activeSessionId = session.id;
+  state.messages = session.messages;
   state.apiMessages = [];
   state.useSelection = false;
   updateSelectionChip();
   setStatus();
   renderAll();
-  persist();
-  updateEmptyState();
+  closeHistory();
   els.input.focus();
   toast(t('panel.toastNewChat'));
+}
+
+function currentSession() {
+  return state.sessions.find((session) => session.id === state.activeSessionId) || null;
+}
+
+function openHistory() {
+  state.historyOpen = true;
+  els.historyDrawer.classList.remove('hidden');
+  renderHistory();
+}
+
+function closeHistory() {
+  state.historyOpen = false;
+  els.historyDrawer.classList.add('hidden');
+}
+
+function formatTime(timestamp) {
+  try {
+    return new Date(timestamp).toLocaleString(getLocale() === 'en' ? 'en-US' : 'zh-CN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function renderHistory() {
+  els.historyList.textContent = '';
+  els.historyCount.textContent = t('history.count', { count: state.sessions.length });
+
+  if (state.sessions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'history-empty';
+    empty.textContent = t('history.empty');
+    els.historyList.appendChild(empty);
+    return;
+  }
+
+  const ordered = [...state.sessions]
+    .filter((session) => (session.messages?.length || 0) > 0 || session.id === state.activeSessionId)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const session of ordered) {
+    const item = document.createElement('div');
+    item.className = `history-item${session.id === state.activeSessionId ? ' active' : ''}`;
+
+    const main = document.createElement('button');
+    main.type = 'button';
+    main.className = 'history-main';
+    main.dataset.load = session.id;
+
+    const title = document.createElement('span');
+    title.className = 'history-title';
+    title.textContent = session.title || sessionTitle(session.messages, t('history.untitled'));
+
+    const meta = document.createElement('span');
+    meta.className = 'history-meta';
+    meta.textContent = `${formatTime(session.updatedAt || session.createdAt)} · ${t('history.messages', {
+      count: session.messages?.length || 0,
+    })}`;
+
+    const snippet = document.createElement('span');
+    snippet.className = 'history-snippet';
+    const last = [...(session.messages || [])].reverse().find((message) => message.content?.trim());
+    snippet.textContent = last
+      ? String(last.content).replace(/[#*`>\n]+/g, ' ').trim().slice(0, 90)
+      : '';
+
+    main.append(title, meta, snippet);
+
+    const actions = document.createElement('div');
+    actions.className = 'history-actions';
+
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.className = 'history-action';
+    exportButton.dataset.export = session.id;
+    exportButton.textContent = t('history.export');
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'history-action danger';
+    deleteButton.dataset.delete = session.id;
+    deleteButton.textContent = t('history.delete');
+
+    actions.append(exportButton, deleteButton);
+    item.append(main, actions);
+    els.historyList.appendChild(item);
+  }
+}
+
+function switchSession(id) {
+  if (id === state.activeSessionId) {
+    closeHistory();
+    return;
+  }
+  if (state.busy) stopStreaming();
+  persist();
+  const session = state.sessions.find((item) => item.id === id);
+  if (!session) return;
+  state.activeSessionId = id;
+  state.messages = session.messages || [];
+  state.apiMessages = [];
+  rebuildApiHistory();
+  renderAll();
+  closeHistory();
+  setStatus();
+  persist();
+}
+
+function deleteSession(id) {
+  if (!window.confirm(t('history.confirmDelete'))) return;
+  const wasActive = id === state.activeSessionId;
+  state.sessions = state.sessions.filter((session) => session.id !== id);
+  if (state.sessions.length === 0) state.sessions = [newSession()];
+  if (wasActive) {
+    state.activeSessionId = state.sessions[0].id;
+    state.messages = state.sessions[0].messages || [];
+    state.apiMessages = [];
+    rebuildApiHistory();
+    renderAll();
+  }
+  persist();
+  renderHistory();
+}
+
+function downloadJson(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function slug(value) {
+  return String(value || 'conversation')
+    .replace(/[^\w\u4e00-\u9fa5-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+function exportSessions(sessions, label) {
+  const payload = {
+    app: 'Sidebar Copilot',
+    exportedAt: new Date().toISOString(),
+    sessions: slimSessions(sessions),
+  };
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadJson(`sidebar-copilot-${slug(label)}-${stamp}.json`, payload);
+  toast(t('history.exported'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1075,7 +1294,18 @@ function resizeInput() {
 }
 
 function persist() {
-  saveConversation(state.messages.filter((message) => !message.streaming));
+  const session = currentSession();
+  if (!session) return;
+  session.messages = slimMessages(state.messages);
+  session.updatedAt = Date.now();
+  if (!session.title) {
+    const derived = sessionTitle(state.messages, '');
+    if (derived) session.title = derived;
+  }
+  if (state.settings?.saveHistory !== false) {
+    saveSessions(state.sessions, state.activeSessionId).catch(() => {});
+  }
+  if (state.historyOpen) renderHistory();
 }
 
 function formatNumber(value) {

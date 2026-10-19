@@ -241,6 +241,11 @@ input[type="range"] {
   flex: 1;
 }
 
+.key-row select {
+  flex: 1;
+  min-width: 0;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

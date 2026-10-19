@@ -18,6 +18,17 @@
         </div>
         <div class="top-actions">
           <button
+            id="historyBtn"
+            class="icon-btn"
+            data-i18n-title="panel.history"
+            data-i18n-aria-label="panel.history"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="8.5" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          </button>
+          <button
             id="newChat"
             class="icon-btn"
             data-i18n-title="common.newChat"
@@ -115,6 +126,28 @@
           <span class="kbd">Alt+Shift+S</span>
         </div>
       </footer>
+    </div>
+
+    <div class="history-drawer hidden" id="historyDrawer">
+      <header class="history-head">
+        <div class="history-heading">
+          <strong data-i18n="history.title">对话记录</strong>
+          <span id="historyCount"></span>
+        </div>
+        <button id="closeHistory" class="icon-btn" data-i18n-aria-label="common.close" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </header>
+      <div class="history-tools">
+        <label class="check-inline">
+          <input type="checkbox" id="saveHistoryToggle" />
+          <span data-i18n="history.save">保存对话记录</span>
+        </label>
+        <button id="exportAll" class="text-btn" data-i18n="history.exportAll">导出全部</button>
+      </div>
+      <div class="history-list" id="historyList"></div>
     </div>
 
     <div class="toast hidden" id="toast" role="status"></div>

@@ -4,6 +4,8 @@ import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 
 const el = {
   presets: document.getElementById('presets'),
+  savedProvider: document.getElementById('savedProvider'),
+  deleteProvider: document.getElementById('deleteProvider'),
   locale: document.getElementById('locale'),
   useCustomBg: document.getElementById('useCustomBg'),
   panelBg: document.getElementById('panelBg'),
@@ -42,6 +44,7 @@ async function init() {
   applyI18n();
   fillForm(settings);
   renderPresets();
+  renderSavedProviders();
   updatePresetState();
   bind();
   setStatus('');
@@ -81,6 +84,50 @@ function presetLabel(preset) {
   if (preset.id === 'custom') return t('options.presetCustom');
   if (preset.id === 'ollama') return t('options.presetOllama');
   return preset.label;
+}
+
+function providerLabel(apiBase, model) {
+  const preset = PRESETS.find(
+    (item) => item.id !== 'custom' && normalizeBaseUrl(item.apiBase) === normalizeBaseUrl(apiBase),
+  );
+  if (preset) return `${preset.id === 'ollama' ? t('options.presetOllama') : preset.label} · ${model}`;
+  try {
+    return `${new URL(apiBase).hostname} · ${model}`;
+  } catch {
+    return model;
+  }
+}
+
+function rememberProvider(values) {
+  const list = Array.isArray(settings.savedProviders) ? [...settings.savedProviders] : [];
+  if (!values.apiBase || !values.apiKey) return list;
+  const id = `${normalizeBaseUrl(values.apiBase)}|${values.model}`;
+  const next = list.filter((provider) => provider.id !== id);
+  next.unshift({
+    id,
+    label: providerLabel(values.apiBase, values.model),
+    apiBase: values.apiBase,
+    model: values.model,
+    apiKey: values.apiKey,
+    updatedAt: Date.now(),
+  });
+  return next.slice(0, 12);
+}
+
+function renderSavedProviders() {
+  const providers = Array.isArray(settings.savedProviders) ? settings.savedProviders : [];
+  el.savedProvider.textContent = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = t('options.chooseProvider');
+  el.savedProvider.appendChild(placeholder);
+
+  for (const provider of providers) {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.label;
+    el.savedProvider.appendChild(option);
+  }
 }
 
 function renderPresets() {
@@ -144,9 +191,36 @@ function bind() {
     setLocale(el.locale.value);
     applyI18n();
     renderPresets();
+    renderSavedProviders();
     updatePresetState();
     updateKeyHint(activePreset);
     setStatus('');
+  });
+
+  el.savedProvider.addEventListener('change', () => {
+    const provider = (settings.savedProviders || []).find(
+      (item) => item.id === el.savedProvider.value,
+    );
+    if (!provider) return;
+    el.apiBase.value = provider.apiBase;
+    el.apiKey.value = provider.apiKey;
+    el.model.value = provider.model;
+    activePreset = 'custom';
+    updatePresetState();
+    updateKeyHint('custom');
+    setStatus('');
+  });
+
+  el.deleteProvider.addEventListener('click', async () => {
+    const id = el.savedProvider.value;
+    if (!id) return;
+    settings = await saveSettings({
+      ...settings,
+      savedProviders: (settings.savedProviders || []).filter((item) => item.id !== id),
+    });
+    renderSavedProviders();
+    el.savedProvider.value = '';
+    setStatus(t('options.saved'), 'ok');
   });
 
   el.useCustomBg.addEventListener('change', () => {
@@ -165,10 +239,12 @@ function bind() {
       setStatus(t('options.fillBase'), 'err');
       return;
     }
+    values.savedProviders = rememberProvider(values);
     settings = await saveSettings(values);
     setLocale(values.locale);
     applyI18n();
     renderPresets();
+    renderSavedProviders();
     updatePresetState();
     updateKeyHint(activePreset);
     setStatus(t('options.saved'), 'ok');
@@ -176,12 +252,21 @@ function bind() {
 
   el.test.addEventListener('click', testConnection);
   el.clearChat.addEventListener('click', async () => {
-    await chrome.storage.local.remove('conversation');
+    await chrome.storage.local.remove(['conversation', 'sessions', 'activeSessionId']);
     setStatus(t('options.cleared'), 'ok');
   });
 
   el.reset.addEventListener('click', () => {
-    fillForm({ ...DEFAULT_SETTINGS, locale: el.locale.value });
+    fillForm({
+      ...DEFAULT_SETTINGS,
+      apiBase: settings.apiBase,
+      apiKey: settings.apiKey,
+      model: settings.model,
+      savedProviders: settings.savedProviders,
+      locale: settings.locale,
+      panelBg: settings.panelBg,
+      saveHistory: settings.saveHistory,
+    });
     setStatus(t('options.resetDone'));
   });
 
@@ -211,6 +296,7 @@ function readForm() {
     systemExtra: el.systemExtra.value.trim(),
     locale: el.locale.value,
     panelBg: el.useCustomBg.checked ? el.panelBg.value : '',
+    savedProviders: settings.savedProviders || [],
   };
 }
 
@@ -227,6 +313,12 @@ async function testConnection() {
 
   el.test.disabled = true;
   setStatus(t('options.testing'));
+
+  const providers = rememberProvider(values);
+  if (providers.length !== (settings.savedProviders || []).length) {
+    settings = await saveSettings({ ...settings, savedProviders: providers });
+    renderSavedProviders();
+  }
 
   const started = performance.now();
   try {

@@ -14,6 +14,8 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
 - **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
+- **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
+- **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
 - **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together, live.
 - **Voice input**: the microphone button transcribes speech into the input box for editing before sending.
 - **Custom background**: pick any side-panel background color; text, borders, and code blocks adapt to light/dark automatically.
@@ -80,7 +82,10 @@ ollama pull qwen2.5:7b
 | Microphone button | Voice input; the transcript is inserted into the input box |
 | Settings → Custom background | Any background color; applies to the side panel immediately |
 | Esc or the square button | Stop generation |
-| `+` | New conversation (page context is kept) |
+| `+` | New conversation (the old one stays in history) |
+| Clock button | Conversation history: switch, delete, export JSON |
+
+![Conversation history](docs/screenshots/panel-history.png)
 
 ## Let the AI operate the page (Agent mode)
 
@@ -231,6 +236,7 @@ sidebar-copilot/
 │  ├─ agentTools.js       page-action tool definitions, labels, risk detection
 │  ├─ i18n.js             Chinese/English UI strings and locale switching
 │  ├─ theme.js            custom background colors and readable palettes
+│  ├─ sessions.js         multi-conversation history, titles, export
 │  └─ settings.js         defaults and local storage
 ├─ icons/                 16/32/48/128 icons
 ├─ scripts/               icon generation, Playwright E2E

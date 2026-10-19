@@ -618,6 +618,26 @@ async function main() {
     check('voice input button exists', await panel.isVisible('#mic'));
     await shot(panel, 'panel-en.png');
 
+    // --- conversation history -------------------------------------------
+    await panel.click('#historyBtn');
+    await panel.waitForSelector('.history-item', { timeout: 10000 });
+    const historyState = await panel.evaluate(() => ({
+      items: document.querySelectorAll('.history-item').length,
+      active: document.querySelectorAll('.history-item.active').length,
+      titles: Array.from(document.querySelectorAll('.history-title')).map((node) => node.textContent),
+    }));
+    check('history lists multiple conversations', historyState.items >= 3, String(historyState.items));
+    check('history marks the active conversation', historyState.active === 1, String(historyState.active));
+    check('history shows a title', historyState.titles.every(Boolean), JSON.stringify(historyState.titles));
+    await shot(panel, 'panel-history.png');
+
+    const [download] = await Promise.all([
+      panel.waitForEvent('download', { timeout: 10000 }),
+      panel.click('.history-item [data-export]'),
+    ]);
+    check('history export downloads JSON', download.suggestedFilename().endsWith('.json'), download.suggestedFilename());
+    await panel.click('#closeHistory');
+
     // --- custom background ----------------------------------------------
     await panel.evaluate(
       () =>
@@ -684,6 +704,21 @@ async function main() {
     check('English options heading', enOptions.heading.includes('Model provider'), enOptions.heading);
     check('English save button', enOptions.save === 'Save', enOptions.save);
     await shot(options, 'options-en.png', { fullPage: true });
+
+    await options.click('#save');
+    await options.waitForFunction(
+      () => document.querySelectorAll('#savedProvider option').length >= 2,
+      null,
+      { timeout: 10000 },
+    );
+    check(
+      'saving remembers the provider',
+      (await options.evaluate(() => document.querySelectorAll('#savedProvider option').length)) >= 2,
+    );
+
+    await options.click('#reset');
+    const keyAfterReset = await options.inputValue('#apiKey');
+    check('reset keeps the API key', keyAfterReset === 'sk-test-key', keyAfterReset);
 
     await options.evaluate(
       () =>

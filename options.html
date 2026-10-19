@@ -21,6 +21,15 @@
         <div class="presets" id="presets"></div>
 
         <label class="field">
+          <span data-i18n="options.savedProviders">已保存的供应商</span>
+          <div class="key-row">
+            <select id="savedProvider"></select>
+            <button id="deleteProvider" class="ghost" type="button" data-i18n="options.deleteProvider">删除</button>
+          </div>
+          <small data-i18n="options.savedProvidersHint">保存或测试连接时会自动记录地址、模型和 Key，下次可直接选择。</small>
+        </label>
+
+        <label class="field">
           <span data-i18n="options.language">界面语言</span>
           <select id="locale">
             <option value="auto" data-i18n="options.languageAuto">跟随浏览器</option>
