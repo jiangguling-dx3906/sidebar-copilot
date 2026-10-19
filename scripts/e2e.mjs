@@ -700,7 +700,6 @@ async function main() {
       }));
       check('DSH sessions listed in history', dshState.count > 0, String(dshState.count));
       check('DSH session shows a title', Boolean(dshState.first), dshState.first);
-      await shot(panel, 'panel-dsh.png');
 
       await panel.click('.dsh-item');
       await panel.waitForFunction(
