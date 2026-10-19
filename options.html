@@ -136,6 +136,17 @@
           <input id="dshBridgeUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:8765" />
           <small data-i18n="options.dshBridgeHint">先运行 node scripts/dsh-bridge.mjs；只在本机回环地址上提供只读数据。</small>
         </label>
+
+        <label class="field">
+          <span data-i18n="dsh.server">DSH 地址</span>
+          <input id="dshServerUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:56508" />
+          <small data-i18n="dsh.serverHint">桌面端 Web 服务地址；插件安装在 DSH 的 cordis.patch.yml 里。</small>
+        </label>
+
+        <label class="field">
+          <span data-i18n="options.dshPlugin">桌面端插件</span>
+          <small data-i18n="options.dshPluginHint">双击 scripts/install-dsh-plugin.cmd，然后完全退出并重启 DeepSeek Harness；卸载用 uninstall-dsh-plugin.cmd。</small>
+        </label>
       </section>
 
       <section class="card">

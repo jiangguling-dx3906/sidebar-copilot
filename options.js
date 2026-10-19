@@ -25,6 +25,7 @@ const el = {
   maxStepsLabel: document.getElementById('maxStepsLabel'),
   dshSync: document.getElementById('dshSync'),
   dshBridgeUrl: document.getElementById('dshBridgeUrl'),
+  dshServerUrl: document.getElementById('dshServerUrl'),
   systemExtra: document.getElementById('systemExtra'),
   save: document.getElementById('save'),
   test: document.getElementById('test'),
@@ -74,6 +75,7 @@ function fillForm(values) {
   el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 6);
   el.dshSync.checked = Boolean(values.dshSync);
   el.dshBridgeUrl.value = values.dshBridgeUrl || DEFAULT_SETTINGS.dshBridgeUrl;
+  el.dshServerUrl.value = values.dshServerUrl || DEFAULT_SETTINGS.dshServerUrl;
   el.systemExtra.value = values.systemExtra || '';
 
   const preset = PRESETS.find(
@@ -272,6 +274,7 @@ function bind() {
       saveHistory: settings.saveHistory,
       dshSync: settings.dshSync,
       dshBridgeUrl: settings.dshBridgeUrl,
+      dshServerUrl: settings.dshServerUrl,
     });
     setStatus(t('options.resetDone'));
   });
@@ -305,6 +308,7 @@ function readForm() {
     savedProviders: settings.savedProviders || [],
     dshSync: el.dshSync.checked,
     dshBridgeUrl: el.dshBridgeUrl.value.trim() || DEFAULT_SETTINGS.dshBridgeUrl,
+    dshServerUrl: el.dshServerUrl.value.trim() || DEFAULT_SETTINGS.dshServerUrl,
   };
 }
 

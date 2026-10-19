@@ -153,6 +153,12 @@ function bindEvents() {
       if (session) exportSessions([session], session.title || 'conversation');
       return;
     }
+    const pushButton = event.target.closest('[data-push]');
+    if (pushButton) {
+      const session = state.sessions.find((item) => item.id === pushButton.dataset.push);
+      if (session) pushSessionToDsh(session);
+      return;
+    }
     const deleteButton = event.target.closest('[data-delete]');
     if (deleteButton) deleteSession(deleteButton.dataset.delete);
   });
@@ -1006,6 +1012,13 @@ function renderHistory() {
     const actions = document.createElement('div');
     actions.className = 'history-actions';
 
+    const pushButton = document.createElement('button');
+    pushButton.type = 'button';
+    pushButton.className = 'history-action';
+    pushButton.dataset.push = session.id;
+    pushButton.textContent = '→ DSH';
+    pushButton.title = t('dsh.push');
+
     const exportButton = document.createElement('button');
     exportButton.type = 'button';
     exportButton.className = 'history-action';
@@ -1018,7 +1031,7 @@ function renderHistory() {
     deleteButton.dataset.delete = session.id;
     deleteButton.textContent = t('history.delete');
 
-    actions.append(exportButton, deleteButton);
+    actions.append(pushButton, exportButton, deleteButton);
     item.append(main, actions);
     els.historyList.appendChild(item);
   }
@@ -1129,6 +1142,33 @@ async function importDshSession(session) {
     toast(t('dsh.imported'));
   } catch {
     toast(t('dsh.offline'));
+  }
+}
+
+async function pushSessionToDsh(session) {
+  const base = String(state.settings?.dshServerUrl || 'http://127.0.0.1:56508').replace(/\/+$/, '');
+  const messages = (session.messages || [])
+    .filter((message) => ['user', 'assistant'].includes(message.role) && message.content?.trim())
+    .map((message) => ({ role: message.role, text: message.content }));
+
+  if (messages.length === 0) {
+    toast(t('dsh.empty'));
+    return;
+  }
+
+  toast(t('dsh.pushing'));
+  try {
+    const response = await fetch(`${base}/sidebar-sync/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: session.title, messages }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);
+    toast(t('dsh.pushed', { id: json.sessionId }));
+  } catch {
+    toast(t('dsh.pushFailed'));
   }
 }
 

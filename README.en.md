@@ -14,7 +14,7 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
 - **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
-- **Desktop session sync (read-only)**: list DeepSeek Harness desktop conversations in the history drawer and import one to read it.
+- **Two-way desktop sync**: list DeepSeek Harness sessions read-only; after installing the desktop plugin, write extension conversations as real DSH sessions visible on both sides.
 - **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
 - **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
 - **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together, live.
@@ -108,7 +108,24 @@ Bridge boundaries:
 - listens on `127.0.0.1` only, read-only, never writes to DSH;
 - reads the local browser-session secret from `~/.dsh/.credentials.yaml` to call DSH's own loopback API;
 - decodes full transcripts from `~/.dsh/sessions/**.zstd`; no external service is involved;
-- extension conversations are not written back to the desktop app: fabricating DSH event logs risks corrupting sessions. True two-way sync needs an import API or a DSH-side plugin.
+- read-only by default; writing requires the desktop plugin below (it creates a real DSH session).
+
+#### Write back to the desktop (DSH plugin)
+
+The extension can turn a conversation into a real DSH session so it appears in the desktop session list:
+
+1. **Fully quit DeepSeek Harness**;
+2. double-click `scripts/install-dsh-plugin.cmd` (or run `node scripts/install-dsh-plugin.mjs`);
+3. start DeepSeek Harness again;
+4. in the side panel history, click “→ DSH” next to a conversation.
+
+The plugin writes through `ctx.sessions.create()` with seeded events, so DSH owns persistence, projections, and the list entry. The installer only touches `~/.dsh/profiles/desktop/cordis.patch.yml` and backs it up to `.sidebar-sync.bak` on first install. Uninstall:
+
+```powershell
+node scripts/install-dsh-plugin.mjs --uninstall
+```
+
+Then restart DSH. This is plugin v1: if a written session cannot be opened, uninstall, restart, and send me the error.
 
 ## Let the AI operate the page (Agent mode)
 

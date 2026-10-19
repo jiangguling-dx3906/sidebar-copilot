@@ -638,6 +638,7 @@ async function main() {
     check('history lists multiple conversations', historyState.items >= 3, String(historyState.items));
     check('history marks the active conversation', historyState.active === 1, String(historyState.active));
     check('history shows a title', historyState.titles.every(Boolean), JSON.stringify(historyState.titles));
+    check('history has sync-to-desktop action', await panel.isVisible('[data-push]'));
     await shot(panel, 'panel-history.png');
 
     const [download] = await Promise.all([

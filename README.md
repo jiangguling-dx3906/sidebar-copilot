@@ -14,7 +14,7 @@
 
 - **读当前页再回答**：注入 content script 提取正文（标题、正文、表格、链接、选中文字），随问题一起发给模型。
 - **让 AI 真的操作页面**：查看元素、点击、输入、拖拽、控制视频进度/音量/倍速、滚动、打开链接，边做边看结果；危险动作先确认。
-- **桌面端会话同步（只读）**：通过本地 bridge 在历史里显示 DeepSeek Harness 桌面端的会话，点开即可导入阅读。
+- **桌面端双向同步**：只读列出 DeepSeek Harness 会话；安装桌面端插件后，可把扩展会话写成 DSH 的合法 session，双向可见。
 - **多会话历史**：每次新对话都会保留，顶部时钟按钮打开列表，可切换、删除或导出为 JSON 存到本地；自动保存可以关掉。
 - **供应商记忆**：保存或测试连接会记住地址、模型和 Key，下次从「已保存的供应商」下拉框直接选；「恢复默认」不会删除 Key。
 - **中英双语界面**：设置里可选「跟随浏览器 / 中文 / English」，面板、设置页、欢迎页、动作文案和系统提示词一起切换，改完即时生效。
@@ -108,7 +108,24 @@ bridge 的边界：
 - 只监听 `127.0.0.1`，只读，不写入 DSH；
 - 读取 `~/.dsh/.credentials.yaml` 里的本地浏览器会话密钥，用它调用 DSH 自己的回环 API；
 - 从 `~/.dsh/sessions/**.zstd` 解码完整对话，不经过任何外部服务；
-- 目前不会把扩展里的对话写回桌面端——伪造成 DSH 事件日志有损坏会话的风险，双向同步需要 DSH 侧提供导入接口或插件。
+- 默认只读，不写入 DSH；写回需要下面的桌面端插件（会创建真实的 DSH session）。
+
+#### 写回桌面端（DSH 插件）
+
+扩展可以把一段会话写成 DSH 的合法 session，让它出现在桌面端会话列表里：
+
+1. **完全退出 DeepSeek Harness**；
+2. 双击 `scripts/install-dsh-plugin.cmd`（等价于 `node scripts/install-dsh-plugin.mjs`）；
+3. 重新启动 DeepSeek Harness；
+4. 侧边栏历史里每条会话右侧点「→ DSH」。
+
+插件通过 `ctx.sessions.create()` + seed 事件写入，落盘、投影和列表都由 DSH 自己完成。安装脚本只改 `~/.dsh/profiles/desktop/cordis.patch.yml`，首次安装会备份为 `.sidebar-sync.bak`。卸载：
+
+```powershell
+node scripts/install-dsh-plugin.mjs --uninstall
+```
+
+然后重启 DSH。插件是 v1，如果桌面端打不开写入的会话，先卸载并重启，把报错发我。
 
 ## 让 AI 操作页面（Agent 模式）
 
