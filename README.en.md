@@ -1,6 +1,6 @@
 # Sidebar Copilot
 
-[简体中文](README.md) · **English**
+[简体中文](README.md) · **English** · [GitHub](https://github.com/jiangguling-dx3906/sidebar-copilot) · [Gitee](https://gitee.com/jiangguling-dx-3906/sidebar-copilot)
 
 An Edge / Chrome side panel extension that opens an AI chat panel beside any web page. It reads the current page's text, title, tables, and selection, then answers questions grounded in that page — and it can also operate the page for you: click, type, drag, scroll, and control video playback.
 

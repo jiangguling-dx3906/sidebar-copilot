@@ -1,6 +1,6 @@
 # Sidebar Copilot
 
-**简体中文** · [English](README.en.md)
+**简体中文** · [English](README.en.md) · [GitHub](https://github.com/jiangguling-dx3906/sidebar-copilot) · [Gitee](https://gitee.com/jiangguling-dx-3906/sidebar-copilot)
 
 一个 Edge / Chrome 侧边栏扩展：在任意网页右侧打开 AI 对话面板，自动读取当前页面的正文、标题、表格和选中文字，直接基于这页回答问题——也可以让它直接点击、输入、拖拽、控制视频、滚动，替你操作页面。
 
