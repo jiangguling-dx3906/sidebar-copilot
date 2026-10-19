@@ -245,7 +245,7 @@ async function main() {
 
   let dshAvailable = false;
   try {
-    const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1500) });
+    const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(10000) });
     dshAvailable = response.ok;
   } catch {
     dshAvailable = false;
@@ -717,6 +717,20 @@ async function main() {
       }));
       check('DSH session imports messages', imported.messages > 0, String(imported.messages));
       check('DSH transcript starts with a user prompt', imported.user.length > 0, imported.user.slice(0, 30));
+
+      await panel.click('#historyBtn');
+      await panel.waitForSelector('[data-push]', { timeout: 10000 });
+      await panel.click('[data-push]');
+      await panel.waitForFunction(
+        () => {
+          const toast = document.getElementById('toast');
+          return Boolean(toast && /已写入|写入失败/.test(toast.textContent));
+        },
+        null,
+        { timeout: 45000 },
+      );
+      const pushToast = await panel.textContent('#toast');
+      check('DSH import writes back through the bridge', /已写入/.test(pushToast), pushToast.slice(0, 60));
     } else {
       console.log('skip DSH sync checks: bridge not running');
     }
