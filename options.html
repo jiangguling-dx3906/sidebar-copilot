@@ -30,6 +30,18 @@
           <small data-i18n="options.languageHint">切换后设置页会立即更新，侧边栏在下次打开或刷新后生效。</small>
         </label>
 
+        <div class="field">
+          <span data-i18n="options.panelBg">侧边栏背景色</span>
+          <div class="color-row">
+            <label class="check">
+              <input id="useCustomBg" type="checkbox" />
+              <span data-i18n="options.customBg">自定义背景</span>
+            </label>
+            <input id="panelBg" type="color" value="#ffffff" />
+          </div>
+          <small data-i18n="options.panelBgHint">只影响侧边栏；文字和边框会按背景明暗自动适配。</small>
+        </div>
+
         <label class="field">
           <span data-i18n="options.apiBase">API 地址</span>
           <input id="apiBase" type="text" spellcheck="false" placeholder="https://api.deepseek.com/v1" />

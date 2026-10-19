@@ -581,11 +581,13 @@ async function main() {
           });
         }),
     );
-    await panel.goto(`chrome-extension://${extensionId}/panel.html?standalone=1&tabId=${fixtureTabId}`);
     await panel.waitForFunction(
-      () => (document.getElementById('pageTitle')?.textContent || '').includes('DeepSeek V4'),
+      () =>
+        document
+          .querySelector('.prompt-card[data-prompt="summary"]')
+          ?.textContent?.includes('Summarize page'),
       null,
-      { timeout: 20000 },
+      { timeout: 15000 },
     );
     await panel.click('#newChat');
     mock.mode = 'summary';
@@ -599,6 +601,11 @@ async function main() {
     check('English quick prompt', enUi.prompt.includes('Summarize page'), enUi.prompt);
     check('English input placeholder', enUi.placeholder.includes('Ask anything'), enUi.placeholder);
     check('English status uses chars', /chars/.test(enUi.status), enUi.status);
+    await panel.waitForFunction(
+      () => /chars/.test(document.getElementById('pageSub')?.textContent || ''),
+      null,
+      { timeout: 10000 },
+    );
     await shot(panel, 'panel-empty-en.png');
 
     await panel.click('.prompt-card[data-prompt="summary"]');
@@ -608,13 +615,39 @@ async function main() {
     const enSystem = requestBody?.messages?.[0]?.content || '';
     check('English system prompt', enSystem.startsWith('You are Sidebar Copilot'), enSystem.slice(0, 40));
     check('English action rules', enSystem.includes('## Page actions'), '');
+    check('voice input button exists', await panel.isVisible('#mic'));
     await shot(panel, 'panel-en.png');
+
+    // --- custom background ----------------------------------------------
+    await panel.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set({ settings: { ...settings, panelBg: '#101820' } }, resolve);
+          });
+        }),
+    );
+    await panel.waitForFunction(
+      () => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#101820',
+      null,
+      { timeout: 10000 },
+    );
+    const themed = await panel.evaluate(() => ({
+      bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+      color: getComputedStyle(document.body).color,
+    }));
+    check('custom panel background applied', themed.bg === '#101820', themed.bg);
+    check('custom background keeps text light', themed.color === 'rgb(238, 240, 246)', themed.color);
+    await shot(panel, 'panel-theme.png');
 
     await panel.evaluate(
       () =>
         new Promise((resolve) => {
           chrome.storage.local.get('settings', ({ settings }) => {
-            chrome.storage.local.set({ settings: { ...settings, locale: 'zh' } }, resolve);
+            chrome.storage.local.set(
+              { settings: { ...settings, locale: 'zh', panelBg: '' } },
+              resolve,
+            );
           });
         }),
     );

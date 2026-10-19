@@ -5,6 +5,7 @@ import { buildSystemPrompt, getQuickPrompts } from './lib/prompts.js';
 import { PAGE_TOOLS, describeAction, isRiskyAction, actionStatusLabel } from './lib/agentTools.js';
 import { parseToolArguments } from './lib/toolcalls.js';
 import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
+import { applyPanelTheme } from './lib/theme.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,6 +29,7 @@ const els = {
   clearSelection: $('clearSelection'),
   input: $('input'),
   inputWrap: $('inputWrap'),
+  mic: $('mic'),
   send: $('send'),
   sendIcon: $('sendIcon'),
   status: $('status'),
@@ -57,6 +59,8 @@ const state = {
   pageLoading: false,
   stickToBottom: true,
   toastTimer: 0,
+  voice: null,
+  voiceBase: '',
 };
 
 /* ------------------------------------------------------------------ */
@@ -122,6 +126,7 @@ function bindEvents() {
   });
 
   els.refreshPage.addEventListener('click', () => readPage({ silent: false }));
+  els.mic.addEventListener('click', toggleVoice);
 
   els.attachToggle.addEventListener('change', async () => {
     state.settings.includePage = els.attachToggle.checked;
@@ -191,6 +196,7 @@ function bindEvents() {
       applyI18n();
       renderPrompts();
       renderAll();
+      if (state.tabId != null && !state.busy) readPage({ silent: true }).catch(() => {});
     }
     applySettings();
   });
@@ -202,6 +208,7 @@ function bindEvents() {
 
 function applySettings() {
   const settings = state.settings;
+  applyPanelTheme(settings.panelBg);
   els.modelLabel.textContent = settings.model || t('panel.noModel');
   els.attachToggle.checked = Boolean(settings.includePage);
   els.keyBanner.classList.toggle('hidden', hasCredentials(settings));
@@ -1077,6 +1084,75 @@ function formatNumber(value) {
     return getLocale() === 'en' ? `${(number / 1000).toFixed(1)}k` : `${(number / 10000).toFixed(1)} 万`;
   }
   return number.toLocaleString(getLocale() === 'en' ? 'en-US' : 'zh-CN');
+}
+
+function toggleVoice() {
+  if (state.voice) {
+    stopVoice();
+    return;
+  }
+
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    toast(t('panel.voiceUnsupported'));
+    return;
+  }
+
+  const recognition = new Recognition();
+  recognition.lang = getLocale() === 'en' ? 'en-US' : 'zh-CN';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.maxAlternatives = 1;
+
+  state.voice = recognition;
+  state.voiceBase = els.input.value;
+  els.mic.classList.add('listening');
+  els.mic.title = t('panel.voiceListening');
+  els.mic.setAttribute('aria-label', t('panel.voiceListening'));
+
+  let finalText = '';
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const result = event.results[i];
+      if (result.isFinal) finalText += result[0].transcript;
+      else interim += result[0].transcript;
+    }
+    els.input.value = `${state.voiceBase}${finalText}${interim}`.trim();
+    resizeInput();
+    updateSendState();
+  };
+  recognition.onerror = (event) => {
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      toast(t('panel.voiceDenied'));
+    } else if (event.error !== 'aborted') {
+      toast(t('panel.voiceError', { error: event.error }));
+    }
+    stopVoice();
+  };
+  recognition.onend = () => stopVoice();
+
+  try {
+    recognition.start();
+  } catch (error) {
+    toast(t('panel.voiceError', { error: error?.message || error }));
+    stopVoice();
+  }
+}
+
+function stopVoice() {
+  const recognition = state.voice;
+  state.voice = null;
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch {
+      /* already stopped */
+    }
+  }
+  els.mic.classList.remove('listening');
+  els.mic.title = t('panel.voiceTitle');
+  els.mic.setAttribute('aria-label', t('panel.voiceTitle'));
 }
 
 function toast(text) {

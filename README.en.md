@@ -14,7 +14,9 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
 - **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
-- **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together.
+- **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together, live.
+- **Voice input**: the microphone button transcribes speech into the input box for editing before sending.
+- **Custom background**: pick any side-panel background color; text, borders, and code blocks adapt to light/dark automatically.
 - **Side panel UI**: `chrome.sidePanel`, non-intrusive and width-adaptive; follows the active tab.
 - **Selection as context**: select text on the page and the panel shows a “selected content” chip; the context menu also offers “Explain selection”.
 - **Summarize from the context menu**: right-click → “Summarize this page with Sidebar Copilot”.
@@ -75,6 +77,8 @@ ollama pull qwen2.5:7b
 | Right-click → Explain selection | Opens the panel and asks directly |
 | Right-click → Summarize this page | Opens the panel and starts a summary |
 | Enter / Shift+Enter | Send / newline |
+| Microphone button | Voice input; the transcript is inserted into the input box |
+| Settings → Custom background | Any background color; applies to the side panel immediately |
 | Esc or the square button | Stop generation |
 | `+` | New conversation (page context is kept) |
 
@@ -184,6 +188,8 @@ background.js                 ← side panel behavior, context menus, shortcut
 - The side panel is opened per tab and may close when you switch tabs; press the shortcut again.
 - One extension instance shares a single conversation; switching pages keeps the old history, so click “New conversation” for clean context.
 - Long pages cost more tokens; “Test connection” does not send page content.
+- Voice input uses the browser's Web Speech API and needs microphone permission and network; some systems or languages may not support it.
+- A custom background affects the side panel only, not the page or the settings screen.
 
 ## Development
 
@@ -224,6 +230,7 @@ sidebar-copilot/
 │  ├─ prompts.js          system prompt, page trimming, quick prompts
 │  ├─ agentTools.js       page-action tool definitions, labels, risk detection
 │  ├─ i18n.js             Chinese/English UI strings and locale switching
+│  ├─ theme.js            custom background colors and readable palettes
 │  └─ settings.js         defaults and local storage
 ├─ icons/                 16/32/48/128 icons
 ├─ scripts/               icon generation, Playwright E2E

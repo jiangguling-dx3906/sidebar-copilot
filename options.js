@@ -5,6 +5,8 @@ import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 const el = {
   presets: document.getElementById('presets'),
   locale: document.getElementById('locale'),
+  useCustomBg: document.getElementById('useCustomBg'),
+  panelBg: document.getElementById('panelBg'),
   apiBase: document.getElementById('apiBase'),
   apiKey: document.getElementById('apiKey'),
   toggleKey: document.getElementById('toggleKey'),
@@ -47,6 +49,9 @@ async function init() {
 
 function fillForm(values) {
   el.locale.value = values.locale || 'auto';
+  el.useCustomBg.checked = Boolean(values.panelBg);
+  el.panelBg.value = values.panelBg || '#ffffff';
+  el.panelBg.disabled = !el.useCustomBg.checked;
   el.apiBase.value = values.apiBase || '';
   el.apiKey.value = values.apiKey || '';
   el.model.value = values.model || '';
@@ -134,13 +139,18 @@ function bind() {
     el.maxStepsLabel.textContent = el.maxAgentSteps.value;
   });
 
-  el.locale.addEventListener('change', () => {
+  el.locale.addEventListener('change', async () => {
+    settings = await saveSettings({ ...settings, locale: el.locale.value });
     setLocale(el.locale.value);
     applyI18n();
     renderPresets();
     updatePresetState();
     updateKeyHint(activePreset);
     setStatus('');
+  });
+
+  el.useCustomBg.addEventListener('change', () => {
+    el.panelBg.disabled = !el.useCustomBg.checked;
   });
 
   el.toggleKey.addEventListener('click', () => {
@@ -200,6 +210,7 @@ function readForm() {
     maxAgentSteps: Number(el.maxAgentSteps.value),
     systemExtra: el.systemExtra.value.trim(),
     locale: el.locale.value,
+    panelBg: el.useCustomBg.checked ? el.panelBg.value : '',
   };
 }
 

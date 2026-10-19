@@ -920,6 +920,44 @@ textarea::placeholder {
   transition: opacity 0.15s ease, transform 0.1s ease, background 0.15s ease;
 }
 
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mic-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mic-btn:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+.mic-btn.listening {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .send-btn svg {
   width: 15px;
   height: 15px;

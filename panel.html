@@ -50,7 +50,7 @@
       <section class="pagebar" id="pagebar">
         <img id="pageFavicon" class="page-favicon" alt="" />
         <div class="page-meta">
-          <div class="page-title" id="pageTitle" data-i18n="panel.statusReading">正在读取页面…</div>
+          <div class="page-title" id="pageTitle">—</div>
           <div class="page-sub" id="pageSub">—</div>
         </div>
         <label class="switch" data-i18n-title="panel.attachTitle">
@@ -97,6 +97,13 @@
         </div>
         <div class="input-wrap" id="inputWrap">
           <textarea id="input" rows="1" data-i18n-placeholder="panel.placeholder"></textarea>
+          <button id="mic" class="mic-btn" data-i18n-title="panel.voiceTitle" data-i18n-aria-label="panel.voiceTitle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="3" width="6" height="10" rx="3" />
+              <path d="M5 11a7 7 0 0 0 14 0" />
+              <path d="M12 18v3" />
+            </svg>
+          </button>
           <button id="send" class="send-btn" data-i18n-title="common.send" data-i18n-aria-label="common.send" disabled>
             <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 19V5M6 11l6-6 6 6" />

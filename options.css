@@ -159,6 +159,28 @@ body {
   cursor: pointer;
 }
 
+.color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.color-row input[type="color"] {
+  width: 46px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
+.color-row input[type="color"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 input[type="text"],
 input[type="password"],
 textarea,
