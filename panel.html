@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidebar Copilot</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <img src="icons/icon48.png" alt="" class="brand-icon" />
+          <div class="brand-text">
+            <strong>Sidebar Copilot</strong>
+            <span id="modelLabel">deepseek-chat</span>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="newChat" class="icon-btn" title="新对话" aria-label="新对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <button id="actionsToggle" class="icon-btn" title="允许 AI 操作页面" aria-label="允许 AI 操作页面" aria-pressed="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 3.5 12 20l2.2-6.2L20.5 11 5 3.5Z" />
+            </svg>
+          </button>
+          <button id="openSettings" class="icon-btn" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M4 7h9M19 7h1M4 17h3M13 17h7" />
+              <circle cx="15" cy="7" r="2.2" />
+              <circle cx="9" cy="17" r="2.2" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="pagebar" id="pagebar">
+        <img id="pageFavicon" class="page-favicon" alt="" />
+        <div class="page-meta">
+          <div class="page-title" id="pageTitle">正在读取页面…</div>
+          <div class="page-sub" id="pageSub">—</div>
+        </div>
+        <label class="switch" title="发送时附带页面内容">
+          <input type="checkbox" id="attachToggle" checked />
+          <span></span>
+        </label>
+        <button id="refreshPage" class="icon-btn small" title="重新读取页面" aria-label="重新读取页面">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 11a8 8 0 1 0-2.3 5.6" />
+            <path d="M20 5v6h-6" />
+          </svg>
+        </button>
+      </section>
+
+      <div class="banner hidden" id="keyBanner">
+        <div>还没有配置 API Key，配置后才能对话。</div>
+        <button id="bannerSettings" class="text-btn">去设置</button>
+      </div>
+
+      <main class="scroll" id="scroll">
+        <div class="empty" id="emptyState">
+          <img src="icons/icon128.png" alt="" class="empty-icon" />
+          <h2>就这个页面，问点什么</h2>
+          <p id="emptyHint">我会读取当前页面的正文，再结合它回答。</p>
+          <div class="prompt-grid" id="promptGrid"></div>
+        </div>
+        <div class="messages" id="messages"></div>
+      </main>
+
+      <footer class="composer">
+        <div class="selection-chip hidden" id="selectionChip">
+          <span class="dot"></span>
+          <span>已引用选中内容 <b id="selectionCount">0</b> 字</span>
+          <button id="clearSelection" title="取消引用" aria-label="取消引用">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="input-wrap" id="inputWrap">
+          <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button id="send" class="send-btn" title="发送" aria-label="发送" disabled>
+            <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M6 11l6-6 6 6" />
+            </svg>
+          </button>
+        </div>
+        <div class="statusbar">
+          <span id="status">正在初始化…</span>
+          <span class="kbd">Alt+Shift+S</span>
+        </div>
+      </footer>
+    </div>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

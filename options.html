@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidebar Copilot 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <img src="icons/icon128.png" alt="" class="hero-icon" />
+        <div>
+          <h1>Sidebar Copilot</h1>
+          <p>在任意网页右侧打开 AI 侧边栏，读取页面内容并直接对话。</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>模型服务</h2>
+        <div class="presets" id="presets"></div>
+
+        <label class="field">
+          <span>API 地址</span>
+          <input id="apiBase" type="text" spellcheck="false" placeholder="https://api.deepseek.com/v1" />
+          <small>OpenAI 兼容接口，自动补 <code>/chat/completions</code>。</small>
+        </label>
+
+        <label class="field">
+          <span>API Key</span>
+          <div class="key-row">
+            <input id="apiKey" type="password" spellcheck="false" placeholder="sk-..." autocomplete="off" />
+            <button id="toggleKey" class="ghost" type="button">显示</button>
+          </div>
+          <small id="keyHint">只保存在本机浏览器存储里，不会同步到云端。</small>
+        </label>
+
+        <label class="field">
+          <span>模型</span>
+          <input id="model" type="text" spellcheck="false" placeholder="deepseek-chat" />
+        </label>
+
+        <div class="field">
+          <span>温度 <b id="temperatureLabel">0.3</b></span>
+          <input id="temperature" type="range" min="0" max="1" step="0.1" />
+          <small>越低越稳定，越高越发散。分析网页建议 0.2–0.4。</small>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>页面与操作</h2>
+
+        <div class="field">
+          <span>单次附带页面字数上限 <b id="maxCharsLabel">14000</b></span>
+          <input id="maxPageChars" type="range" min="2000" max="60000" step="1000" />
+          <small>太长会浪费 token；太短可能丢掉关键内容。超出时保留开头和结尾。</small>
+        </div>
+
+        <div class="field">
+          <span>携带的历史消息条数 <b id="historyLabel">12</b></span>
+          <input id="historyLimit" type="range" min="2" max="40" step="2" />
+        </div>
+
+        <div class="field">
+          <label class="check">
+            <input id="allowPageActions" type="checkbox" />
+            <span>允许 AI 操作页面</span>
+          </label>
+          <small>开启后模型可以点击、输入、拖拽、控制视频、滚动和打开链接；关闭后只能阅读。</small>
+        </div>
+
+        <div class="field">
+          <label class="check">
+            <input id="confirmActions" type="checkbox" />
+            <span>每次操作前都问我</span>
+          </label>
+          <small>支付、删除、发送等危险动作，无论是否勾选都会先询问。</small>
+        </div>
+
+        <div class="field">
+          <span>单轮最多操作步数 <b id="maxStepsLabel">6</b></span>
+          <input id="maxAgentSteps" type="range" min="1" max="10" step="1" />
+          <small>模型为完成一个任务最多连续执行多少个动作。</small>
+        </div>
+
+        <label class="field">
+          <span>额外系统提示（可选）</span>
+          <textarea id="systemExtra" rows="3" placeholder="例如：我是产品经理，回答时多关注用户价值和竞品差异。"></textarea>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>操作</h2>
+        <div class="actions">
+          <button id="save" class="primary" type="button">保存</button>
+          <button id="test" class="secondary" type="button">测试连接</button>
+          <button id="clearChat" class="ghost" type="button">清除对话记录</button>
+          <button id="reset" class="ghost" type="button">恢复默认</button>
+        </div>
+        <p id="status" class="status" role="status"></p>
+        <p class="fineprint">
+          页面内容只在你点击发送时随请求发给上面的模型服务。扩展本身不收集、不上传任何数据；
+          API Key 存放在 <code>chrome.storage.local</code>。
+        </p>
+      </section>
+
+      <footer class="foot">
+        <span>快捷键 Alt+Shift+S 打开侧边栏</span>
+        <a id="shortcutsLink" href="#">修改快捷键</a>
+      </footer>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

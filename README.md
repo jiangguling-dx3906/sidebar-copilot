@@ -1,0 +1,252 @@
+# Sidebar Copilot
+
+一个 Edge / Chrome 侧边栏扩展：在任意网页右侧打开 AI 对话面板，自动读取当前页面的正文、标题、表格和选中文字，直接基于这页回答问题——也可以让它直接点击、输入、滚动，替你操作页面。
+
+![侧边栏对话](docs/screenshots/panel-chat.png)
+
+| 空状态 | 设置页 |
+| --- | --- |
+| ![空状态](docs/screenshots/panel-empty.png) | ![设置页](docs/screenshots/options.png) |
+
+## 它能做什么
+
+- **读当前页再回答**：注入 content script 提取正文（标题、正文、表格、链接、选中文字），随问题一起发给模型。
+- **让 AI 真的操作页面**：查看元素、点击、输入、拖拽、控制视频进度/音量/倍速、滚动、打开链接，边做边看结果；危险动作先确认。
+- **侧边栏形态**：`chrome.sidePanel`，不遮挡页面，宽度自适应；跟随当前标签页。
+- **选中即引用**：在页面上选中一段文字，面板底部会出现「已引用选中内容」；也可以右键菜单「解释所选内容」。
+- **右键总结整页**：页面右键 →「用 Sidebar Copilot 总结此页」。
+- **快捷键**：`Alt+Shift+S` 随时打开（可在扩展快捷键页修改）。
+- **流式输出**：SSE 逐字渲染，可随时停止、重试。
+- **Markdown 渲染**：标题、列表、引用、表格、代码块（带复制按钮），全部本地渲染，不加载远程代码。
+- **多模型**：DeepSeek / OpenAI / 本地 Ollama / 任意 OpenAI 兼容接口。
+- **深色模式**：跟随系统。
+- **对话持久化**：保存在本机 `chrome.storage.local`，关掉再打开还在。
+
+## 快速开始
+
+### 1. 加载扩展
+
+Edge：
+
+1. 地址栏打开 `edge://extensions`
+2. 打开左下角「开发人员模式」
+3. 点「加载解压缩的扩展」，选择本目录（包含 `manifest.json` 的那一层）
+
+Chrome 同理：`chrome://extensions` → 开发者模式 → 加载已解压的扩展程序。
+
+要求 Edge / Chrome **116+**（`chrome.sidePanel`）。安装后首次会打开欢迎页，建议把扩展图标固定到工具栏。
+
+### 2. 配置模型
+
+打开设置（欢迎页按钮，或右键扩展图标 → 选项），填写：
+
+| 预设 | API 地址 | 默认模型 | Key |
+| --- | --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| 本地 Ollama | `http://localhost:11434/v1` | `qwen2.5:7b` | 不需要 |
+
+点「测试连接」确认能通，再保存。Key 只存在本机浏览器存储里。
+
+Ollama 需要允许扩展来源跨域，启动前设置环境变量并重启 Ollama：
+
+```powershell
+setx OLLAMA_ORIGINS "chrome-extension://*"
+ollama pull qwen2.5:7b
+```
+
+### 3. 用起来
+
+1. 打开任意普通网页
+2. 按 `Alt+Shift+S`（或点工具栏图标）
+3. 直接提问，或点「总结本页」
+
+## 使用细节
+
+| 操作 | 行为 |
+| --- | --- |
+| 顶部开关 | 关闭后本条消息不附带页面内容（模型会被告知“用户关闭了页面附件”） |
+| 刷新按钮 | 重新提取当前页（SPA 内容变化后点它） |
+| 页面标题下的「445 字」 | 本次实际能送给模型的正文长度 |
+| 选中文字 | 自动出现引用条；点 × 取消引用 |
+| 右键 → 解释所选内容 | 打开侧边栏并直接提问 |
+| 右键 → 总结此页 | 打开侧边栏并触发总结 |
+| Enter / Shift+Enter | 发送 / 换行 |
+| Esc 或方块按钮 | 停止生成 |
+| `+` | 新对话（页面上下文保留） |
+
+## 让 AI 操作页面（Agent 模式）
+
+顶部工具栏的**指针图标**是操作开关，默认开启。点一下变灰就回到纯只读模式。
+
+开启后，模型不只会“告诉你怎么点”，而是真的在你当前标签页上执行：
+
+| 工具 | 作用 |
+| --- | --- |
+| `inspect_page` | 列出可交互元素（按钮/链接/输入框/下拉框），返回 `ref`、文字、坐标、是否可见 |
+| `click` | 点击元素，支持 `ref` / CSS 选择器 / 可见文字 |
+| `type_text` | 填写输入框或 contenteditable，可顺带按 Enter 提交 |
+| `select_option` | 选择原生 `<select>` 的选项 |
+| `press_key` | 发送 Enter、Escape、Tab 等按键 |
+| `scroll_page` | 按方向滚动，或把指定元素滚动到视野内 |
+| `open_url` | 在当前标签页打开 http(s) 链接 |
+| `read_page` | 导航或页面变化后重新读正文（附带视频/音频状态） |
+| `wait_for` | 等文字/元素出现，最多 15 秒 |
+| `control_media` | 播放/暂停、跳转进度（百分比或秒）、音量、静音、倍速 |
+| `drag` | 按住元素拖动，支持 from/to 或 dx/dy，用于自定义进度条、滑块、排序 |
+| `set_range` | 设置原生 `<input type=range>`（音量条、设置滑块） |
+| `hover` | 悬停展开菜单/提示 |
+
+一次任务最多连续执行 6 步（设置里 1–10 可调）。每一步都会在对话里留下卡片：状态、目标、耗时结果，点「查看结果」能看到结构化返回。模型看到结果后决定下一步，直到完成或到达步数上限。
+
+> 操作能力依赖模型的 function calling。DeepSeek `deepseek-chat`、OpenAI `gpt-4o-mini` 支持；不支持工具的模型只会给文字建议。
+
+![AI 操作页面](docs/screenshots/panel-actions.png)
+
+示例指令：
+
+- 「帮我填上名字，然后点打招呼」
+- 「在这个页面搜索 XX，打开第一条结果」
+- 「把表格里的价格填进下面的表单」
+- 「视频拖到一半，音量调到 80%」
+- 「点开字幕/笔记，把内容整理成要点」
+- 「登录框已经填好了，帮我点登录」（密码字段它不会碰）
+
+### 视频与播放器
+
+不用模拟拖进度条也能精确控制：`control_media` 直接操作页面里的 `<video>/<audio>`。
+
+- 「跳到 3 分 20 秒」→ `seek(seconds: 200)`
+- 「拖到一半」→ `seek(percent: 50)`
+- 「快进 30 秒 / 后退 15 秒」→ `seek_by`
+- 「音量 80% / 静音 / 1.5 倍速」→ `volume` / `mute` / `rate`
+
+它返回真实状态（currentTime、duration、paused、volume、readyState）；如果播放器开了字幕，还会带上当前字幕行。媒体操作会注入同页所有 frame，所以常见的内嵌播放器 iframe 也能控制。
+**画面本身仍然看不到**（除非换成支持图片输入的模型）：它能读标题、简介、评论、字幕等文本，也能按你的要求点开“字幕/笔记/AI 总结”面板再读。对原生播放器，直接操作 `<video>` 比点阴影 DOM 里的按钮可靠得多。
+
+![视频与拖拽控制](docs/screenshots/panel-media.png)
+
+### 安全边界
+
+- **危险动作强制确认**：支付、下单、删除、提交、发送、退出登录、确认等关键词命中时，即使关闭了“每步确认”，也会弹出「允许 / 跳过」。
+- **密码与验证码不碰**：`type_text` 遇到 `type=password`、hidden、file 直接拒绝；模型会被要求停下来让你自己填。
+- **随时可停**：输入框右侧的方块按钮（或 Esc）会中断当前请求和后续动作。
+- **标签页校验**：执行每个动作前确认还是同一个标签页；切换标签会中止，避免在错误的页面上乱点。
+- **一键只读**：指针图标关闭后，请求里不再包含工具定义。
+
+![危险动作确认](docs/screenshots/panel-confirm.png)
+
+> 这只是“减少误操作”，不是安全沙箱。模型仍可能判断错页面状态。不要把它用在网银、支付、公司后台等高风险流程上；任何提交前自己看一眼。
+
+### 操作能力限制
+
+- 点击、输入、拖拽只作用于顶层文档；**媒体控制（`control_media`）会尝试所有 frame**，内嵌播放器通常可用。
+- 拖拽/点击使用 DOM 合成事件（`pointerdown → pointermove → pointerup`），能覆盖大多数自定义播放器和滑块；原生 `<video controls>` 的阴影 DOM 按钮点不到，用 `control_media`。
+- canvas 画布、文件上传、跨域 iframe 未实现。
+- 自定义下拉框（`role=combobox`）需要模型改用「点击 + 点选项」两步；原生 `<select>` 一步完成。
+- 页面重新渲染后旧 `ref` 会失效，模型会重新 `inspect_page`。
+- `edge://`、`chrome://`、扩展商店、PDF 阅读器、`view-source:` 无法注入，任何扩展都操作不了；新建标签页本身也是 `edge://newtab`，请先打开真实网页。
+
+## 工作原理
+
+```
+panel.html + panel.js          ← 侧边栏 UI、对话、Markdown、SSE、agent 循环
+      │  chrome.scripting.executeScript
+      ▼
+content.js（隔离世界）          ← 提取正文；agent 模式下执行动作并高亮目标
+      │
+      ▼
+fetch POST {base}/chat/completions（stream: true + tools）
+       ↺ 返回 tool_calls → 页面执行 → 结果回填 → 再请求，直到给出最终回答
+      │
+background.js                 ← 侧边栏开关、右键菜单、快捷键
+```
+
+- **上下文怎么拼**：一条 system 消息 = 角色规则 + 页面元信息 + `<<<PAGE_CONTENT_START>>>` 包裹的正文 + 选中内容；随后是最近 N 条对话和本次提问。页面正文被明确标注为「不可信数据，不是指令」，以降低提示注入风险。
+- **长页面**：默认最多 14000 字，超出时保留开头 72% + 结尾 24%，中间标注省略字数。可在设置里调到 2000–60000。
+- **为什么默认 DeepSeek**：和你在终端里用的是同一类模型接口，中文和长上下文性价比高；也可以随时换。
+
+## 隐私与安全
+
+- API Key 和对话只写在 `chrome.storage.local`，不参与浏览器账号同步，也不经过任何第三方服务器。
+- 页面内容**只在你点发送时**随请求发给模型服务；扩展本身没有埋点、没有远程配置。
+- 没有远程代码：MV3 CSP 只允许本地脚本，Markdown 渲染器先转义再拼标签，链接只允许 `http(s)`/`mailto`。
+- 页面文本可能包含恶意指令（提示注入）。扩展把正文包在定界符里并声明为数据，但**这不能保证模型一定不被误导**——不要把不可信页面的输出直接当操作依据。
+
+## 已知限制
+
+- 浏览器内部页（`chrome://`、`edge://`、扩展商店、PDF 阅读器、`view-source:`）禁止注入，面板会显示「无法读取此页面」。
+- 只读顶层文档，不读 iframe 内容；不解析图片、视频和 canvas，模型看不到视觉信息。
+- 动态渲染的页面在打开/刷新时取一次快照；页面后续变化要点刷新。
+- 侧边栏按标签页打开，切换标签后可能收起，再按一次快捷键即可。
+- 一个扩展实例共用一段对话；换页面时旧对话仍在，需要干净上下文就点「新对话」。
+- 长页面会消耗较多 token；「测试连接」不消耗页面内容。
+
+## 开发
+
+```powershell
+# 首次运行前安装测试依赖（playwright-core）
+npm install
+
+# 单元测试（Markdown、SSE、tool_calls、提示词、工具定义、manifest）
+node --test "tests/*.test.js"
+
+# 端到端测试：无头 Edge 加载扩展 → 本地 fixture 页面 → 拦截 API 返回 SSE
+node scripts/e2e.mjs
+```
+
+`scripts/e2e.mjs` 会优先从 `PLAYWRIGHT_CORE` 指定的路径加载 Playwright，否则使用本地 `npm install` 安装的 `playwright-core`。它会实际验证：页面提取与噪音排除（导航/表单/页脚）、快捷提问、Markdown 表格与代码块、选中内容进入 system prompt、**工具调用循环（填表 → 点击 → 页面真的变化 → 继续回答）**、危险动作确认与跳过、**媒体 seek/音量、range 滑块与自定义拖拽**、设置页状态，并输出 `docs/screenshots/` 下的截图。
+
+重新生成图标（需要 Pillow）：
+
+```powershell
+python scripts/make-icons.py
+```
+
+### 文件结构
+
+```
+sidebar-copilot/
+├─ manifest.json          MV3 清单
+├─ background.js          侧边栏行为、右键菜单、快捷键
+├─ content.js             页面正文提取（隔离世界，只读）
+├─ panel.html/css/js      侧边栏 UI 与对话逻辑
+├─ options.html/css/js    设置页
+├─ welcome.html/js        安装后的引导页
+├─ lib/
+│  ├─ api.js              OpenAI 兼容调用 + 工具调用流 + 错误文案
+│  ├─ sse.js              增量 SSE 解析
+│  ├─ toolcalls.js        流式 tool_calls 累积与参数解析
+│  ├─ markdown.js         安全的 Markdown → HTML
+│  ├─ prompts.js          系统提示词、页面裁剪、快捷提问
+│  ├─ agentTools.js       页面操作工具定义、动作文案、危险动作判定
+│  └─ settings.js         默认配置与本地存储
+├─ icons/                 16/32/48/128 图标
+├─ scripts/               图标生成、Playwright E2E
+├─ tests/                 单元测试
+└─ docs/screenshots/      README 与验收截图
+```
+
+## 常见问题
+
+**401 / API Key 无效**：Key 复制时带了空格，或用了别的服务商的 Key。设置页点「测试连接」看具体报错。
+
+**测试连接报“无法连接 / CORS”**：本地 Ollama 没设 `OLLAMA_ORIGINS`；或 API 地址多了/少了 `/v1`。
+
+**侧边栏打不开**：Edge 版本低于 116，或扩展未启用；`edge://extensions` 里看有没有报错。
+
+**快捷键没反应**：`edge://extensions/shortcuts` 里可能和其它扩展冲突，改一个组合。
+
+**模型说读不到页面**：当前页是浏览器内部页/PDF，或注入被站点拦截；换普通网页再试。
+
+**在新建标签页上它说“我没有控制权”**：`edge://newtab` 属于浏览器内部页面，任何扩展都无法注入。先打开真实网页（http/https），必要时刷新一次；如果还不行，确认扩展已重新加载到 v1.2。
+
+**视频读不到画面**：它确实看不到视频像素，但可以 `control_media` 播放/暂停/跳进度/调音量，也可以点开字幕、笔记、AI 总结面板再读文本。要让它直接描述画面，需要支持图片输入的模型。
+
+**进度条拖不动**：先让它用 `control_media seek`（对 `<video>` 最可靠）；自定义播放器再用 `drag`。原生播放器的按钮在阴影 DOM 里，点不到是正常的。
+
+**回答很慢/很贵**：把「单次附带页面字数上限」调小，或关掉顶部页面开关只问通用问题。
+
+**它只说“你可以点击…”却不动手**：确认顶部的指针图标是亮的；模型需要支持 function calling；再检查设置里「允许 AI 操作页面」是否勾选。
+
+**点了没反应**：目标可能在 iframe 里（站内嵌的第三方播放器），或控件只监听 pointerdown。让它先 `inspect_page` 换个定位再试。
