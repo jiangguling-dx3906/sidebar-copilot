@@ -1,5 +1,7 @@
 # Sidebar Copilot
 
+**简体中文** · [English](README.en.md)
+
 一个 Edge / Chrome 侧边栏扩展：在任意网页右侧打开 AI 对话面板，自动读取当前页面的正文、标题、表格和选中文字，直接基于这页回答问题——也可以让它直接点击、输入、滚动，替你操作页面。
 
 ![侧边栏对话](docs/screenshots/panel-chat.png)
@@ -142,7 +144,7 @@ ollama pull qwen2.5:7b
 
 - 点击、输入、拖拽只作用于顶层文档；**媒体控制（`control_media`）会尝试所有 frame**，内嵌播放器通常可用。
 - 拖拽/点击使用 DOM 合成事件（`pointerdown → pointermove → pointerup`），能覆盖大多数自定义播放器和滑块；原生 `<video controls>` 的阴影 DOM 按钮点不到，用 `control_media`。
-- canvas 画布、文件上传、跨域 iframe 未实现。
+- canvas 画布、文件上传，以及跨域 iframe 内的点击/输入未实现（媒体控制除外）。
 - 自定义下拉框（`role=combobox`）需要模型改用「点击 + 点选项」两步；原生 `<select>` 一步完成。
 - 页面重新渲染后旧 `ref` 会失效，模型会重新 `inspect_page`。
 - `edge://`、`chrome://`、扩展商店、PDF 阅读器、`view-source:` 无法注入，任何扩展都操作不了；新建标签页本身也是 `edge://newtab`，请先打开真实网页。
@@ -176,7 +178,7 @@ background.js                 ← 侧边栏开关、右键菜单、快捷键
 ## 已知限制
 
 - 浏览器内部页（`chrome://`、`edge://`、扩展商店、PDF 阅读器、`view-source:`）禁止注入，面板会显示「无法读取此页面」。
-- 只读顶层文档，不读 iframe 内容；不解析图片、视频和 canvas，模型看不到视觉信息。
+- 正文只读顶层文档（媒体控制会尝试所有 frame）；不解析图片、视频画面和 canvas，模型看不到视觉信息。
 - 动态渲染的页面在打开/刷新时取一次快照；页面后续变化要点刷新。
 - 侧边栏按标签页打开，切换标签后可能收起，再按一次快捷键即可。
 - 一个扩展实例共用一段对话；换页面时旧对话仍在，需要干净上下文就点「新对话」。
