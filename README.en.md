@@ -14,6 +14,7 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
 - **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
+- **Desktop session sync (read-only)**: list DeepSeek Harness desktop conversations in the history drawer and import one to read it.
 - **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
 - **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
 - **Bilingual UI**: follow the browser, Chinese, or English. The panel, settings, welcome page, action labels, and system prompt all switch together, live.
@@ -86,6 +87,28 @@ ollama pull qwen2.5:7b
 | Clock button | Conversation history: switch, delete, export JSON |
 
 ![Conversation history](docs/screenshots/panel-history.png)
+
+### DeepSeek Harness desktop sync (read-only)
+
+The side panel can read the local DeepSeek Harness session list and show it in the history drawer; click a session to import its full transcript.
+
+1. Start the read-only bridge (Node 22+, from the project directory):
+
+```powershell
+node scripts/dsh-bridge.mjs
+```
+
+On Windows you can also double-click `scripts/start-dsh-bridge.cmd`; closing that window stops the sync.
+
+2. Settings → “DeepSeek Harness sync” → enable “Show desktop sessions”; keep the bridge URL at `http://127.0.0.1:8765`.
+3. Open the history drawer; desktop sessions appear at the top with title, turn count, and time. Click one to import.
+
+Bridge boundaries:
+
+- listens on `127.0.0.1` only, read-only, never writes to DSH;
+- reads the local browser-session secret from `~/.dsh/.credentials.yaml` to call DSH's own loopback API;
+- decodes full transcripts from `~/.dsh/sessions/**.zstd`; no external service is involved;
+- extension conversations are not written back to the desktop app: fabricating DSH event logs risks corrupting sessions. True two-way sync needs an import API or a DSH-side plugin.
 
 ## Let the AI operate the page (Agent mode)
 
@@ -237,9 +260,10 @@ sidebar-copilot/
 │  ├─ i18n.js             Chinese/English UI strings and locale switching
 │  ├─ theme.js            custom background colors and readable palettes
 │  ├─ sessions.js         multi-conversation history, titles, export
+│  ├─ dsh-transcript.js   DSH session events → chat messages
 │  └─ settings.js         defaults and local storage
 ├─ icons/                 16/32/48/128 icons
-├─ scripts/               icon generation, Playwright E2E
+├─ scripts/               icon generation, Playwright E2E, DSH sync bridge
 ├─ tests/                 unit tests
 └─ docs/screenshots/      README and verification screenshots
 ```

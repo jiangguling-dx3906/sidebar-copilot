@@ -243,6 +243,15 @@ async function main() {
 
   console.log(`fixture: ${fixtureUrl}`);
 
+  let dshAvailable = false;
+  try {
+    const response = await fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(1500) });
+    dshAvailable = response.ok;
+  } catch {
+    dshAvailable = false;
+  }
+  console.log(`DSH bridge: ${dshAvailable ? 'available' : 'not running (sync checks skipped)'}`);
+
   let launched = await launch(true);
   if (!launched) {
     console.log('headless extension load failed, retrying headed...');
@@ -671,6 +680,45 @@ async function main() {
           });
         }),
     );
+
+    // --- DeepSeek Harness sync (only when the local bridge is running) ---
+    if (dshAvailable) {
+      await panel.evaluate(
+        () =>
+          new Promise((resolve) => {
+            chrome.storage.local.get('settings', ({ settings }) => {
+              chrome.storage.local.set({ settings: { ...settings, dshSync: true } }, resolve);
+            });
+          }),
+      );
+      await panel.click('#historyBtn');
+      await panel.waitForSelector('.dsh-item', { timeout: 15000 });
+      const dshState = await panel.evaluate(() => ({
+        count: document.querySelectorAll('.dsh-item').length,
+        first: document.querySelector('.dsh-item-title')?.textContent || '',
+      }));
+      check('DSH sessions listed in history', dshState.count > 0, String(dshState.count));
+      check('DSH session shows a title', Boolean(dshState.first), dshState.first);
+      await shot(panel, 'panel-dsh.png');
+
+      await panel.click('.dsh-item');
+      await panel.waitForFunction(
+        () => document.getElementById('historyDrawer').classList.contains('hidden'),
+        null,
+        { timeout: 20000 },
+      );
+      await panel.waitForFunction(() => document.querySelectorAll('.msg').length > 0, null, {
+        timeout: 10000,
+      });
+      const imported = await panel.evaluate(() => ({
+        messages: document.querySelectorAll('.msg').length,
+        user: document.querySelector('.msg.user .bubble')?.textContent || '',
+      }));
+      check('DSH session imports messages', imported.messages > 0, String(imported.messages));
+      check('DSH transcript starts with a user prompt', imported.user.length > 0, imported.user.slice(0, 30));
+    } else {
+      console.log('skip DSH sync checks: bridge not running');
+    }
 
     const options = await context.newPage();
     watch(options, 'options');

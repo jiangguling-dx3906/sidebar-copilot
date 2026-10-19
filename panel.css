@@ -1094,6 +1094,93 @@ textarea::placeholder {
   gap: 6px;
 }
 
+.history-section {
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+
+.history-section-head strong {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.history-section-head.extension-head {
+  padding: 8px 12px 0;
+}
+
+.dsh-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dsh-badge {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 8.5px;
+  font-weight: 600;
+}
+
+.dsh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.dsh-item {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dsh-item:hover {
+  border-color: var(--accent);
+}
+
+.dsh-item-title {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dsh-item-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.dsh-note {
+  padding: 6px 4px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .history-empty {
   padding: 30px 12px;
   text-align: center;

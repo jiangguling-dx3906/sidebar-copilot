@@ -1,6 +1,6 @@
 {
   "name": "sidebar-copilot",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "type": "module",
   "description": "Edge/Chrome side panel AI copilot that reads the current page and can click, type, drag, and control video playback.",

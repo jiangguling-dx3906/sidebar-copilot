@@ -14,6 +14,7 @@
 
 - **读当前页再回答**：注入 content script 提取正文（标题、正文、表格、链接、选中文字），随问题一起发给模型。
 - **让 AI 真的操作页面**：查看元素、点击、输入、拖拽、控制视频进度/音量/倍速、滚动、打开链接，边做边看结果；危险动作先确认。
+- **桌面端会话同步（只读）**：通过本地 bridge 在历史里显示 DeepSeek Harness 桌面端的会话，点开即可导入阅读。
 - **多会话历史**：每次新对话都会保留，顶部时钟按钮打开列表，可切换、删除或导出为 JSON 存到本地；自动保存可以关掉。
 - **供应商记忆**：保存或测试连接会记住地址、模型和 Key，下次从「已保存的供应商」下拉框直接选；「恢复默认」不会删除 Key。
 - **中英双语界面**：设置里可选「跟随浏览器 / 中文 / English」，面板、设置页、欢迎页、动作文案和系统提示词一起切换，改完即时生效。
@@ -86,6 +87,28 @@ ollama pull qwen2.5:7b
 | 时钟按钮 | 打开对话历史，可切换、删除、导出 JSON |
 
 ![对话历史](docs/screenshots/panel-history.png)
+
+### 与 DeepSeek Harness 桌面端同步（只读）
+
+侧边栏可以读取本机 DeepSeek Harness 的会话列表，并在历史抽屉里显示；点一条即可把完整对话导入扩展阅读。
+
+1. 启动本地只读 bridge（Node 22+，在项目目录里运行）：
+
+```powershell
+node scripts/dsh-bridge.mjs
+```
+
+也可以直接双击 `scripts/start-dsh-bridge.cmd`（Windows）。它会保持一个命令行窗口；关掉窗口即停止同步。
+
+2. 扩展设置 →「DeepSeek Harness 同步」→ 勾选「显示桌面端会话」，Bridge 地址保持 `http://127.0.0.1:8765`。
+3. 打开历史抽屉，上方会出现桌面端会话（标题、轮数、更新时间）；点一下导入。
+
+bridge 的边界：
+
+- 只监听 `127.0.0.1`，只读，不写入 DSH；
+- 读取 `~/.dsh/.credentials.yaml` 里的本地浏览器会话密钥，用它调用 DSH 自己的回环 API；
+- 从 `~/.dsh/sessions/**.zstd` 解码完整对话，不经过任何外部服务；
+- 目前不会把扩展里的对话写回桌面端——伪造成 DSH 事件日志有损坏会话的风险，双向同步需要 DSH 侧提供导入接口或插件。
 
 ## 让 AI 操作页面（Agent 模式）
 
@@ -237,9 +260,10 @@ sidebar-copilot/
 │  ├─ i18n.js             中英文界面文案与切换
 │  ├─ theme.js            自定义背景色与明暗适配
 │  ├─ sessions.js         多会话历史、标题与导出
+│  ├─ dsh-transcript.js   DSH 会话事件 → 对话消息
 │  └─ settings.js         默认配置与本地存储
 ├─ icons/                 16/32/48/128 图标
-├─ scripts/               图标生成、Playwright E2E
+├─ scripts/               图标生成、Playwright E2E、DSH 同步桥
 ├─ tests/                 单元测试
 └─ docs/screenshots/      README 与验收截图
 ```

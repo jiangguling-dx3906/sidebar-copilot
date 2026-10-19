@@ -42,6 +42,9 @@ const els = {
   historyCount: $('historyCount'),
   saveHistoryToggle: $('saveHistoryToggle'),
   exportAll: $('exportAll'),
+  dshSection: $('dshSection'),
+  dshList: $('dshList'),
+  refreshDsh: $('refreshDsh'),
   openSettings: $('openSettings'),
   actionsToggle: $('actionsToggle'),
   toast: $('toast'),
@@ -137,6 +140,7 @@ function bindEvents() {
     }
     exportSessions(state.sessions, 'all');
   });
+  els.refreshDsh.addEventListener('click', loadDshSessions);
   els.historyList.addEventListener('click', (event) => {
     const load = event.target.closest('[data-load]');
     if (load) {
@@ -265,6 +269,7 @@ function applySettings() {
   applyActionsToggle();
   setStatus();
   updateSendState();
+  if (state.historyOpen) loadDshSessions();
 }
 
 function isScriptableUrl(url) {
@@ -934,6 +939,7 @@ function openHistory() {
   state.historyOpen = true;
   els.historyDrawer.classList.remove('hidden');
   renderHistory();
+  loadDshSessions();
 }
 
 function closeHistory() {
@@ -1015,6 +1021,114 @@ function renderHistory() {
     actions.append(exportButton, deleteButton);
     item.append(main, actions);
     els.historyList.appendChild(item);
+  }
+}
+
+function dshBase() {
+  return String(state.settings?.dshBridgeUrl || 'http://127.0.0.1:8765').replace(/\/+$/, '');
+}
+
+async function loadDshSessions() {
+  if (!state.settings?.dshSync) {
+    els.dshSection.classList.add('hidden');
+    return;
+  }
+  els.dshSection.classList.remove('hidden');
+  els.dshList.textContent = '';
+
+  const note = document.createElement('div');
+  note.className = 'dsh-note';
+  note.textContent = `${t('dsh.refresh')}…`;
+  els.dshList.appendChild(note);
+
+  try {
+    const response = await fetch(`${dshBase()}/sessions`, { signal: AbortSignal.timeout(5000) });
+    const json = await response.json();
+    if (!json.ok) throw new Error(json.error || 'bridge error');
+    renderDshSessions(json.sessions || []);
+  } catch {
+    els.dshList.textContent = '';
+    const offline = document.createElement('div');
+    offline.className = 'dsh-note';
+    offline.textContent = t('dsh.offline');
+    els.dshList.appendChild(offline);
+  }
+}
+
+function renderDshSessions(sessions) {
+  els.dshList.textContent = '';
+  if (sessions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'dsh-note';
+    empty.textContent = t('dsh.empty');
+    els.dshList.appendChild(empty);
+    return;
+  }
+
+  for (const session of sessions) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'dsh-item';
+
+    const title = document.createElement('span');
+    title.className = 'dsh-item-title';
+    title.textContent = session.title;
+
+    const meta = document.createElement('span');
+    meta.className = 'dsh-item-meta';
+    meta.textContent = [
+      t('dsh.turns', { count: session.turns || 0 }),
+      formatTime(session.updatedAt),
+      session.running ? t('dsh.running') : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    item.append(title, meta);
+    item.addEventListener('click', () => importDshSession(session));
+    els.dshList.appendChild(item);
+  }
+}
+
+async function importDshSession(session) {
+  try {
+    const response = await fetch(`${dshBase()}/sessions/${encodeURIComponent(session.id)}`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    const json = await response.json();
+    if (!json.ok) throw new Error(json.error || 'bridge error');
+
+    const messages = (json.session.messages || [])
+      .filter((message) => message.text?.trim())
+      .map((message) => ({
+        role: message.role,
+        content: message.text,
+        ts: message.time || Date.now(),
+      }));
+    if (messages.length === 0) {
+      toast(t('dsh.empty'));
+      return;
+    }
+
+    persist();
+    let target = currentSession();
+    if (!target || (target.messages?.length || 0) > 0) {
+      target = newSession();
+      state.sessions.unshift(target);
+      state.activeSessionId = target.id;
+    }
+    target.title = `[DSH] ${json.session.title || session.title}`;
+    target.messages = messages;
+    state.messages = target.messages;
+    state.apiMessages = [];
+    rebuildApiHistory();
+    renderAll();
+    closeHistory();
+    setStatus();
+    persist();
+    toast(t('dsh.imported'));
+  } catch {
+    toast(t('dsh.offline'));
   }
 }
 

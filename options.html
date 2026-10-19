@@ -121,6 +121,24 @@
       </section>
 
       <section class="card">
+        <h2 data-i18n="options.section.dsh">DeepSeek Harness 同步</h2>
+
+        <div class="field">
+          <label class="check">
+            <input id="dshSync" type="checkbox" />
+            <span data-i18n="options.dshSync">显示桌面端会话</span>
+          </label>
+          <small data-i18n="options.dshSyncHint">在侧边栏历史里显示 DeepSeek Harness 桌面端的会话（只读，可导入阅读）。</small>
+        </div>
+
+        <label class="field">
+          <span data-i18n="options.dshBridge">同步桥地址</span>
+          <input id="dshBridgeUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:8765" />
+          <small data-i18n="options.dshBridgeHint">先运行 node scripts/dsh-bridge.mjs；只在本机回环地址上提供只读数据。</small>
+        </label>
+      </section>
+
+      <section class="card">
         <h2 data-i18n="options.section.actions">操作</h2>
         <div class="actions">
           <button id="save" class="primary" type="button" data-i18n="common.save">保存</button>

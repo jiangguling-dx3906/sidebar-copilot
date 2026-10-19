@@ -147,6 +147,19 @@
         </label>
         <button id="exportAll" class="text-btn" data-i18n="history.exportAll">导出全部</button>
       </div>
+      <div class="history-section hidden" id="dshSection">
+        <div class="history-section-head">
+          <strong data-i18n="dsh.title">DeepSeek Harness</strong>
+          <span class="dsh-actions">
+            <span class="dsh-badge" data-i18n="dsh.readOnly">只读同步</span>
+            <button id="refreshDsh" class="text-btn" data-i18n="dsh.refresh">刷新</button>
+          </span>
+        </div>
+        <div id="dshList" class="dsh-list"></div>
+      </div>
+      <div class="history-section-head extension-head">
+        <strong data-i18n="history.title">对话记录</strong>
+      </div>
       <div class="history-list" id="historyList"></div>
     </div>
 

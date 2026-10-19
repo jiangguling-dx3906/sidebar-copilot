@@ -23,6 +23,8 @@ const el = {
   confirmActions: document.getElementById('confirmActions'),
   maxAgentSteps: document.getElementById('maxAgentSteps'),
   maxStepsLabel: document.getElementById('maxStepsLabel'),
+  dshSync: document.getElementById('dshSync'),
+  dshBridgeUrl: document.getElementById('dshBridgeUrl'),
   systemExtra: document.getElementById('systemExtra'),
   save: document.getElementById('save'),
   test: document.getElementById('test'),
@@ -70,6 +72,8 @@ function fillForm(values) {
   el.confirmActions.checked = Boolean(values.confirmActions);
   el.maxAgentSteps.value = String(values.maxAgentSteps ?? 6);
   el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 6);
+  el.dshSync.checked = Boolean(values.dshSync);
+  el.dshBridgeUrl.value = values.dshBridgeUrl || DEFAULT_SETTINGS.dshBridgeUrl;
   el.systemExtra.value = values.systemExtra || '';
 
   const preset = PRESETS.find(
@@ -266,6 +270,8 @@ function bind() {
       locale: settings.locale,
       panelBg: settings.panelBg,
       saveHistory: settings.saveHistory,
+      dshSync: settings.dshSync,
+      dshBridgeUrl: settings.dshBridgeUrl,
     });
     setStatus(t('options.resetDone'));
   });
@@ -297,6 +303,8 @@ function readForm() {
     locale: el.locale.value,
     panelBg: el.useCustomBg.checked ? el.panelBg.value : '',
     savedProviders: settings.savedProviders || [],
+    dshSync: el.dshSync.checked,
+    dshBridgeUrl: el.dshBridgeUrl.value.trim() || DEFAULT_SETTINGS.dshBridgeUrl,
   };
 }
 
