@@ -88,11 +88,11 @@ ollama pull qwen2.5:7b
 
 ![对话历史](docs/screenshots/panel-history.png)
 
-### 与 DeepSeek Harness 桌面端同步（只读）
+### 与 DeepSeek Harness 桌面端同步
 
-侧边栏可以读取本机 DeepSeek Harness 的会话列表，并在历史抽屉里显示；点一条即可把完整对话导入扩展阅读。
+侧边栏可以读取本机 DeepSeek Harness 的会话列表，并在历史抽屉里显示；点一条即可把完整对话导入扩展阅读。桌面端每次启动端口会变，bridge 会自动发现，不需要手填。
 
-1. 启动本地只读 bridge（Node 22+，在项目目录里运行）：
+1. 启动本地 bridge（Node 22+，在项目目录里运行）：
 
 ```powershell
 node scripts/dsh-bridge.mjs
@@ -105,27 +105,31 @@ node scripts/dsh-bridge.mjs
 
 bridge 的边界：
 
-- 只监听 `127.0.0.1`，只读，不写入 DSH；
+- 只监听 `127.0.0.1`，会话列表只读；
 - 读取 `~/.dsh/.credentials.yaml` 里的本地浏览器会话密钥，用它调用 DSH 自己的回环 API；
 - 从 `~/.dsh/sessions/**.zstd` 解码完整对话，不经过任何外部服务；
-- 默认只读，不写入 DSH；写回需要下面的桌面端插件（会创建真实的 DSH session）。
+- `/dsh/import` 只做转发，真正写回由下面的 DSH 插件完成。
 
 #### 写回桌面端（DSH 插件）
 
 扩展可以把一段会话写成 DSH 的合法 session，让它出现在桌面端会话列表里：
 
-1. **完全退出 DeepSeek Harness**；
-2. 双击 `scripts/install-dsh-plugin.cmd`（等价于 `node scripts/install-dsh-plugin.mjs`）；
-3. 重新启动 DeepSeek Harness；
-4. 侧边栏历史里每条会话右侧点「→ DSH」。
+1. 运行安装脚本（DSH 开着也可以，HMR 会立即重组；没生效再重启）：
 
-插件通过 `ctx.sessions.create()` + seed 事件写入，落盘、投影和列表都由 DSH 自己完成。安装脚本只改 `~/.dsh/profiles/desktop/cordis.patch.yml`，首次安装会备份为 `.sidebar-sync.bak`。卸载：
+```text
+scripts\install-dsh-plugin.cmd
+```
+
+2. 打开侧边栏历史，点某条会话右侧的「→ DSH」；
+3. 桌面端会话列表会出现同名会话，含完整的用户提问和助手回复。
+
+插件通过 `ctx.sessions.create()` + seed 事件创建会话，再调 `ctx.sessionPersistence.materialize()` 写出完整的 v4 JSONL 日志，所以重启后仍然存在。安装脚本只改 `~/.dsh/profiles/desktop/cordis.patch.yml`，并把插件复制成带内容哈希的文件；首次安装会备份 patch 为 `.sidebar-sync.bak`。卸载：
 
 ```powershell
 node scripts/install-dsh-plugin.mjs --uninstall
 ```
 
-然后重启 DSH。插件是 v1，如果桌面端打不开写入的会话，先卸载并重启，把报错发我。
+然后重启 DSH。导入的会话是只读的（`agentAvailable: false`），桌面端可以打开阅读，但不会自动接上一个 Agent 继续跑工具。
 
 ## 让 AI 操作页面（Agent 模式）
 

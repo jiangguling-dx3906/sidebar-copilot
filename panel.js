@@ -1146,7 +1146,7 @@ async function importDshSession(session) {
 }
 
 async function pushSessionToDsh(session) {
-  const base = String(state.settings?.dshServerUrl || 'http://127.0.0.1:56508').replace(/\/+$/, '');
+  const bridge = String(state.settings?.dshBridgeUrl || 'http://127.0.0.1:8765').replace(/\/+$/, '');
   const messages = (session.messages || [])
     .filter((message) => ['user', 'assistant'].includes(message.role) && message.content?.trim())
     .map((message) => ({ role: message.role, text: message.content }));
@@ -1158,11 +1158,15 @@ async function pushSessionToDsh(session) {
 
   toast(t('dsh.pushing'));
   try {
-    const response = await fetch(`${base}/sidebar-sync/import`, {
+    const response = await fetch(`${bridge}/dsh/import`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ title: session.title, messages }),
-      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        title: session.title,
+        messages,
+        ...(state.settings?.dshServerUrl ? { dshUrl: state.settings.dshServerUrl } : {}),
+      }),
+      signal: AbortSignal.timeout(35000),
     });
     const json = await response.json().catch(() => ({}));
     if (!response.ok || !json.ok) throw new Error(json.error || `HTTP ${response.status}`);

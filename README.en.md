@@ -88,11 +88,11 @@ ollama pull qwen2.5:7b
 
 ![Conversation history](docs/screenshots/panel-history.png)
 
-### DeepSeek Harness desktop sync (read-only)
+### DeepSeek Harness desktop sync
 
-The side panel can read the local DeepSeek Harness session list and show it in the history drawer; click a session to import its full transcript.
+The side panel can read the local DeepSeek Harness session list and show it in the history drawer; click a session to import its full transcript. The desktop picks a new loopback port on every start; the bridge discovers it automatically.
 
-1. Start the read-only bridge (Node 22+, from the project directory):
+1. Start the bridge (Node 22+, from the project directory):
 
 ```powershell
 node scripts/dsh-bridge.mjs
@@ -105,27 +105,31 @@ On Windows you can also double-click `scripts/start-dsh-bridge.cmd`; closing tha
 
 Bridge boundaries:
 
-- listens on `127.0.0.1` only, read-only, never writes to DSH;
+- listens on `127.0.0.1` only; the session list is read-only;
 - reads the local browser-session secret from `~/.dsh/.credentials.yaml` to call DSH's own loopback API;
 - decodes full transcripts from `~/.dsh/sessions/**.zstd`; no external service is involved;
-- read-only by default; writing requires the desktop plugin below (it creates a real DSH session).
+- `/dsh/import` only forwards; the DSH plugin below performs the actual write.
 
 #### Write back to the desktop (DSH plugin)
 
 The extension can turn a conversation into a real DSH session so it appears in the desktop session list:
 
-1. **Fully quit DeepSeek Harness**;
-2. double-click `scripts/install-dsh-plugin.cmd` (or run `node scripts/install-dsh-plugin.mjs`);
-3. start DeepSeek Harness again;
-4. in the side panel history, click “→ DSH” next to a conversation.
+1. run the installer (DSH can stay open; HMR recomposes immediately, otherwise restart):
 
-The plugin writes through `ctx.sessions.create()` with seeded events, so DSH owns persistence, projections, and the list entry. The installer only touches `~/.dsh/profiles/desktop/cordis.patch.yml` and backs it up to `.sidebar-sync.bak` on first install. Uninstall:
+```text
+scripts\install-dsh-plugin.cmd
+```
+
+2. in the side panel history, click “→ DSH” next to a conversation;
+3. the desktop session list shows the same title with the full user prompt and assistant reply.
+
+The plugin creates the session through `ctx.sessions.create()` with seeded events, then calls `ctx.sessionPersistence.materialize()` to write a complete v4 JSONL log, so it survives a restart. The installer only touches `~/.dsh/profiles/desktop/cordis.patch.yml` and copies the plugin under a content-hashed filename; it backs the patch up to `.sidebar-sync.bak` on first install. Uninstall:
 
 ```powershell
 node scripts/install-dsh-plugin.mjs --uninstall
 ```
 
-Then restart DSH. This is plugin v1: if a written session cannot be opened, uninstall, restart, and send me the error.
+Then restart DSH. Imported sessions are read-only (`agentAvailable: false`): the desktop can open and read them, but does not attach an Agent to continue running tools.
 
 ## Let the AI operate the page (Agent mode)
 

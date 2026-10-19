@@ -14,16 +14,33 @@ test('builds a complete turn from a user/assistant pair', () => {
 
   assert.deepEqual(
     events.map((event) => event.type),
-    ['agent/inbox/spliced', 'turn/start', 'step/start', 'assistant/message', 'step/end', 'turn/end'],
+    [
+      'agent/inbox/spliced',
+      'turn/start',
+      'step/start',
+      'user/message',
+      'session/title',
+      'assistant/message',
+      'step/end',
+      'turn/end',
+    ],
   );
   assert.deepEqual(
     events.map((event) => event.seq),
-    [0, 1, 2, 3, 4, 5],
+    [0, 1, 2, 3, 4, 5, 6, 7],
   );
   assert.equal(events[0].data.inserted[0].content[0].text, 'Hello');
-  assert.equal(events[3].data.message.content[0].text, 'Hi there');
-  assert.equal(events[3].data.message.role, 'assistant');
-  assert.equal(events[5].data.reason.kind, 'completed');
+  assert.equal(events[3].data.content[0].text, 'Hello');
+  assert.equal(events[5].data.message.content[0].text, 'Hi there');
+  assert.equal(events[5].data.message.role, 'assistant');
+  assert.equal(events[7].data.reason.kind, 'completed');
+});
+
+test('sets a fallback title from the first user message', () => {
+  const events = buildEvents([{ role: 'user', text: 'A title' }], 0, 'Given title');
+  const title = events.find((event) => event.type === 'session/title');
+  assert.equal(title.data.title, 'Given title');
+  assert.deepEqual(title.data.messageSeqs, [3]);
 });
 
 test('builds one turn per user/assistant pair', () => {

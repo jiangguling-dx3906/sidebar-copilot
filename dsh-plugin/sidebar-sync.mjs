@@ -8,7 +8,7 @@
  */
 
 export const name = 'sidebar-sync';
-export const inject = ['webServer', 'sessions'];
+export const inject = ['webServer', 'sessions', 'sessionPersistence'];
 
 const MAX_BODY = 8 * 1024 * 1024;
 
@@ -49,15 +49,18 @@ function textMessage(text) {
   return [{ type: 'text', text: String(text) }];
 }
 
-export function buildEvents(messages, now) {
+export function buildEvents(messages, now, title = '') {
   const events = [];
   let seq = 0;
   let turn = 0;
   let open = false;
 
   const push = (type, data) => {
-    events.push({ type, seq, time: now + seq, data });
+    const event = { type, seq, time: now + seq, data };
+    if (type === 'assistant/message' || type === 'user/message') event.surfaceOp = 'append';
+    events.push(event);
     seq += 1;
+    return event.seq;
   };
 
   for (const message of messages) {
@@ -67,6 +70,7 @@ export function buildEvents(messages, now) {
         push('turn/end', { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } });
       }
       turn += 1;
+      const userId = crypto.randomUUID();
       push('agent/inbox/spliced', {
         target: 'next-turn',
         start: 0,
@@ -75,12 +79,25 @@ export function buildEvents(messages, now) {
             role: 'user',
             content: textMessage(message.text),
             source: { kind: 'user' },
-            id: crypto.randomUUID(),
+            id: userId,
           },
         ],
       });
       push('turn/start', { turn });
       push('step/start', { turn, step: 1 });
+      const userSeq = push('user/message', {
+        content: textMessage(message.text),
+        source: { kind: 'user' },
+        role: 'user',
+        id: userId,
+      });
+      if (turn === 1) {
+        push('session/title', {
+          title: String(title || message.text).replace(/\s+/g, ' ').trim().slice(0, 80),
+          messageSeqs: [userSeq],
+          source: { kind: 'fallback' },
+        });
+      }
       open = true;
       continue;
     }
@@ -89,6 +106,7 @@ export function buildEvents(messages, now) {
       push('assistant/message', {
         turn,
         step: 1,
+        stream: [],
         message: {
           role: 'assistant',
           content: textMessage(message.text),
@@ -132,7 +150,7 @@ export function apply(ctx) {
 
       const sessionId = `session-${crypto.randomUUID()}`;
       const now = Date.now();
-      const events = buildEvents(messages, now);
+      const events = buildEvents(messages, now, payload.title);
       const session = ctx.sessions.create(sessionId, {
         seed: events,
         meta: {
@@ -141,6 +159,11 @@ export function apply(ctx) {
           agentPreset: 'standard',
         },
       });
+
+      // The store is in-memory only; materialize the same header + event log
+      // (including the constructor's end-seed marker) as a durable v4 JSONL
+      // log so the session survives a DSH restart.
+      await ctx.sessionPersistence.materialize(session.header, 0, session.snapshotEvents());
 
       reply(request, response, 200, {
         ok: true,

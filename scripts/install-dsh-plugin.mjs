@@ -2,17 +2,17 @@
 /**
  * Install or remove the Sidebar Copilot DSH host plugin for a desktop profile.
  *
- * The plugin is loaded by file URL from this repository, so nothing is copied
- * into the app. The profile patch is backed up first.
+ * The plugin is copied into the profile and loaded by relative URL, so the
+ * profile patch is the only config change. The patch is backed up first.
  *
  * Usage:
  *   node scripts/install-dsh-plugin.mjs
  *   node scripts/install-dsh-plugin.mjs --uninstall
  */
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 const START = '# sidebar-sync:start';
 const END = '# sidebar-sync:end';
@@ -29,6 +29,12 @@ const patchFile = path.join(profile, 'cordis.patch.yml');
 const plugin = path.resolve(arg('plugin', path.join(process.cwd(), 'dsh-plugin', 'sidebar-sync.mjs')));
 const backupFile = path.join(profile, 'cordis.patch.yml.sidebar-sync.bak');
 
+function installedPlugins() {
+  return readdirSync(profile)
+    .filter((name) => /^sidebar-sync.*\.plugin\.mjs$/.test(name))
+    .map((name) => path.join(profile, name));
+}
+
 if (!existsSync(patchFile)) {
   console.error(`profile patch not found: ${patchFile}`);
   process.exit(1);
@@ -38,7 +44,7 @@ const current = readFileSync(patchFile, 'utf8');
 const hasBlock = current.includes(START);
 
 if (uninstall) {
-  if (!hasBlock) {
+  if (!hasBlock && installedPlugins().length === 0) {
     console.log('Sidebar Copilot plugin is not installed in this profile.');
     process.exit(0);
   }
@@ -47,6 +53,7 @@ if (uninstall) {
     '\n',
   );
   writeFileSync(patchFile, cleaned);
+  for (const file of installedPlugins()) rmSync(file);
   console.log(`Removed the plugin entry from ${patchFile}`);
   console.log(`Original patch backup: ${backupFile}`);
   console.log('Restart DeepSeek Harness to unload it.');
@@ -59,11 +66,23 @@ if (!existsSync(plugin)) {
 }
 
 if (!existsSync(backupFile)) copyFileSync(patchFile, backupFile);
-const href = pathToFileURL(plugin).href;
+
+// A content-addressed filename lets HMR import a fresh module instead of
+// reusing the cached old one; stale copies are removed.
+const source = readFileSync(plugin);
+const hash = createHash('sha256').update(source).digest('hex').slice(0, 8);
+const fileName = `sidebar-sync.${hash}.plugin.mjs`;
+const installedPlugin = path.join(profile, fileName);
+for (const file of installedPlugins()) {
+  if (file !== installedPlugin) rmSync(file);
+}
+copyFileSync(plugin, installedPlugin);
+
 const block = [
   START,
-  '- id: sidebar-sync',
-  `  name: "${href}"`,
+  '- insert:',
+  '    - id: sidebar-sync',
+  `      name: "./${fileName}"`,
   END,
 ].join('\n');
 
@@ -74,9 +93,9 @@ const next = hasBlock
 writeFileSync(patchFile, next);
 console.log('Sidebar Copilot DSH plugin installed.');
 console.log(`  patch : ${patchFile}`);
+console.log(`  plugin: ${installedPlugin}`);
 console.log(`  backup: ${backupFile}`);
-console.log(`  plugin: ${href}`);
 console.log('');
-console.log('Close DeepSeek Harness completely, then start it again.');
-console.log('After restart, use “Sync to desktop” in the side panel history.');
+console.log('With HMR enabled the profile recomposes immediately; otherwise restart DeepSeek Harness.');
+console.log('Then use “→ DSH” in the side panel history.');
 console.log('To undo: node scripts/install-dsh-plugin.mjs --uninstall');
