@@ -13,7 +13,9 @@
 ## 它能做什么
 
 - **读当前页再回答**：注入 content script 提取正文（标题、正文、表格、链接、选中文字），随问题一起发给模型。
-- **让 AI 真的操作页面**：查看元素、点击、输入、拖拽、控制视频进度/音量/倍速、滚动、打开链接，边做边看结果；危险动作先确认。
+- **让 AI 真的操作页面**：查看元素、点击/双击/右键、输入、勾选、清空、全选、拖拽、容器内滚动、切换标签页、控制视频进度/音量/倍速；支持开放 Shadow DOM。
+- **持续任务与技能**：不再 6 步就停，模型持续执行到完成或你点停止；内置 form / media / extract / navigate / verify / inspect 分步技能。
+- **动作可验证**：每次输入/选择/滑块/媒体/滚动都会读回实际状态，结果标为「完成 / 待确认 / 失败」；目标绑定 `tabId + documentId + snapshotId`。
 - **桌面端双向同步**：只读列出 DeepSeek Harness 会话；安装桌面端插件后，可把扩展会话写成 DSH 的合法 session，双向可见。
 - **多会话历史**：每次新对话都会保留，顶部时钟按钮打开列表，可切换、删除或导出为 JSON 存到本地；自动保存可以关掉。
 - **供应商记忆**：保存或测试连接会记住地址、模型和 Key，下次从「已保存的供应商」下拉框直接选；「恢复默认」不会删除 Key。
@@ -139,21 +141,34 @@ node scripts/install-dsh-plugin.mjs --uninstall
 
 | 工具 | 作用 |
 | --- | --- |
-| `inspect_page` | 列出可交互元素（按钮/链接/输入框/下拉框），返回 `ref`、文字、坐标、是否可见 |
-| `click` | 点击元素，支持 `ref` / CSS 选择器 / 可见文字 |
-| `type_text` | 填写输入框或 contenteditable，可顺带按 Enter 提交 |
+| `inspect_page` | 列出可交互元素（按钮/链接/输入框/下拉框/开放 Shadow DOM），返回快照、`ref`、文字、值、坐标、是否可见 |
+| `click` / `double_click` / `right_click` | 点击、双击、右键；支持 `ref` / CSS 选择器 / 可见文字 / 视口坐标 |
+| `type_text` | 填写输入框或 contenteditable，可顺带按 Enter 提交，并读回验证 |
+| `focus` / `clear` / `select_text` | 聚焦、清空、全选输入框文本 |
+| `check` / `uncheck` | 勾选或取消 checkbox，选择 radio |
+| `get_element_info` | 读取单个元素的文本、值、checked/selected、属性、位置和可见状态 |
 | `select_option` | 选择原生 `<select>` 的选项 |
-| `press_key` | 发送 Enter、Escape、Tab 等按键 |
-| `scroll_page` | 按方向滚动，或把指定元素滚动到视野内 |
-| `open_url` | 在当前标签页打开 http(s) 链接 |
+| `press_key` | 发送 Enter、Escape、Tab、方向键，支持 Control/Shift/Alt/Meta 组合键和重复次数 |
+| `scroll_page` / `scroll_inside` | 滚动页面，或在弹窗/列表/容器内部滚动 |
+| `open_url` | 在当前标签页或新标签页打开 http(s) 链接 |
 | `read_page` | 导航或页面变化后重新读正文（附带视频/音频状态） |
-| `wait_for` | 等文字/元素出现，最多 15 秒 |
-| `control_media` | 播放/暂停、跳转进度（百分比或秒）、音量、静音、倍速 |
+| `wait_for` | 等文字/元素出现或消失，最多 30 秒 |
+| `control_media` | 播放/暂停、跳转进度（百分比或秒）、音量、静音、倍速，并读回状态 |
 | `drag` | 按住元素拖动，支持 from/to 或 dx/dy，用于自定义进度条、滑块、排序 |
 | `set_range` | 设置原生 `<input type=range>`（音量条、设置滑块） |
 | `hover` | 悬停展开菜单/提示 |
+| `tab_control` | 列出、新建、切换、刷新、前进/后退标签页；关闭当前侧边栏所在标签页会被拒绝 |
+| `skill` | 加载 form / media / extract / navigate / verify / inspect 分步操作手册 |
 
-一次任务最多连续执行 6 步（设置里 1–10 可调）。每一步都会在对话里留下卡片：状态、目标、耗时结果，点「查看结果」能看到结构化返回。模型看到结果后决定下一步，直到完成或到达步数上限。
+任务会**持续执行直到完成或你点停止**，不再有“6 步就结束”的限制。设置里的默认 100 步只是防止失控的安全上限（20–300 可调）。每一步都会留下卡片，状态分为「完成 / 待确认 / 失败」：
+
+- **完成**：动作的后置条件已验证（字段读回、媒体状态、滚动位置等）。
+- **待确认**：动作已发出，但页面没有可观察变化、跨文档导航或超时；不要自动重放点击/提交。
+- **失败**：明确失败并给出原因。
+
+当前页面会绑定 `tabId + documentId + snapshotId`；导航或文档替换后旧 `ref` 会失效，模型必须重新 `inspect_page`。
+
+任务匹配时会先调用 `skill` 获取分步手册，例如填表、媒体控制、页面提取、标签页导航和结果验证；这些技能不是硬编码脚本，仍由模型观察页面后逐步执行。
 
 > 操作能力依赖模型的 function calling。DeepSeek `deepseek-chat`、OpenAI `gpt-4o-mini` 支持；不支持工具的模型只会给文字建议。
 
@@ -185,7 +200,9 @@ node scripts/install-dsh-plugin.mjs --uninstall
 ### 安全边界
 
 - **危险动作强制确认**：支付、下单、删除、提交、发送、退出登录、确认等关键词命中时，即使关闭了“每步确认”，也会弹出「允许 / 跳过」。
-- **密码与验证码不碰**：`type_text` 遇到 `type=password`、hidden、file 直接拒绝；模型会被要求停下来让你自己填。
+- **密码与敏感字段不碰**：`type_text` 遇到 `type=password`、hidden、file，以及名称/占位符像验证码、token、密钥、银行卡、CVV 的字段会直接拒绝；`inspect_page` / `get_element_info` 也不会返回值。
+- **动作目标绑定**：每次动作核对标签页和 `documentId`；页面导航后旧快照的 `ref` 失效，避免在新页面上误点旧坐标。
+- **结果验证**：输入、选择、滑块、媒体和滚动都会读回实际状态；不能确认时标记「待确认」，不会假装成功。
 - **随时可停**：输入框右侧的方块按钮（或 Esc）会中断当前请求和后续动作。
 - **标签页校验**：执行每个动作前确认还是同一个标签页；切换标签会中止，避免在错误的页面上乱点。
 - **一键只读**：指针图标关闭后，请求里不再包含工具定义。
@@ -197,10 +214,12 @@ node scripts/install-dsh-plugin.mjs --uninstall
 ### 操作能力限制
 
 - 点击、输入、拖拽只作用于顶层文档；**媒体控制（`control_media`）会尝试所有 frame**，内嵌播放器通常可用。
+- **开放 Shadow DOM**（`mode: "open"`）会自动搜索；关闭的 shadow root 仍无法访问。
 - 拖拽/点击使用 DOM 合成事件（`pointerdown → pointermove → pointerup`），能覆盖大多数自定义播放器和滑块；原生 `<video controls>` 的阴影 DOM 按钮点不到，用 `control_media`。
 - canvas 画布、文件上传，以及跨域 iframe 内的点击/输入未实现（媒体控制除外）。
 - 自定义下拉框（`role=combobox`）需要模型改用「点击 + 点选项」两步；原生 `<select>` 一步完成。
 - 页面重新渲染后旧 `ref` 会失效，模型会重新 `inspect_page`。
+- 没有引入 `chrome.debugger`/CDP 截图或无障碍树；需要真实浏览器输入、画面或复杂 iframe 时属于后续扩展，不是当前能力。
 - `edge://`、`chrome://`、扩展商店、PDF 阅读器、`view-source:` 无法注入，任何扩展都操作不了；新建标签页本身也是 `edge://newtab`，请先打开真实网页。
 
 ## 工作原理
@@ -253,7 +272,7 @@ node --test "tests/*.test.js"
 node scripts/e2e.mjs
 ```
 
-`scripts/e2e.mjs` 会优先从 `PLAYWRIGHT_CORE` 指定的路径加载 Playwright，否则使用本地 `npm install` 安装的 `playwright-core`。它会实际验证：页面提取与噪音排除（导航/表单/页脚）、快捷提问、Markdown 表格与代码块、选中内容进入 system prompt、**工具调用循环（填表 → 点击 → 页面真的变化 → 继续回答）**、危险动作确认与跳过、**媒体 seek/音量、range 滑块与自定义拖拽**、设置页状态，并输出 `docs/screenshots/` 下的截图。
+`scripts/e2e.mjs` 会优先从 `PLAYWRIGHT_CORE` 指定的路径加载 Playwright，否则使用本地 `npm install` 安装的 `playwright-core`。它会实际验证：页面提取与噪音排除、快捷提问、Markdown、选中内容进入 system prompt、**工具调用循环**、**8 步连续任务（证明不再受 6 步限制）**、危险动作确认与跳过、**媒体 seek/音量、range 滑块与自定义拖拽**、**check/uncheck、focus、clear、select_text、get_element_info、开放 Shadow DOM、容器内滚动、按键**、设置页状态，并输出 `docs/screenshots/` 下的截图。
 
 重新生成图标（需要 Pillow）：
 
@@ -267,8 +286,8 @@ python scripts/make-icons.py
 sidebar-copilot/
 ├─ manifest.json          MV3 清单
 ├─ background.js          侧边栏行为、右键菜单、快捷键
-├─ content.js             页面正文提取（隔离世界，只读）
-├─ panel.html/css/js      侧边栏 UI 与对话逻辑
+├─ content.js             页面提取、目标快照、动作执行与验证
+├─ panel.html/css/js      侧边栏 UI、持续 agent 循环与动作卡片
 ├─ options.html/css/js    设置页
 ├─ welcome.html/js        安装后的引导页
 ├─ lib/
@@ -278,6 +297,8 @@ sidebar-copilot/
 │  ├─ markdown.js         安全的 Markdown → HTML
 │  ├─ prompts.js          系统提示词、页面裁剪、快捷提问
 │  ├─ agentTools.js       页面操作工具定义、动作文案、危险动作判定
+│  ├─ skills.js           form/media/extract/navigate/verify/inspect 技能手册
+│  ├─ protocol.js         目标绑定、请求 ID、verified/uncertain 分类
 │  ├─ i18n.js             中英文界面文案与切换
 │  ├─ theme.js            自定义背景色与明暗适配
 │  ├─ sessions.js         多会话历史、标题与导出
@@ -301,13 +322,13 @@ sidebar-copilot/
 
 **模型说读不到页面**：当前页是浏览器内部页/PDF，或注入被站点拦截；换普通网页再试。
 
-**在新建标签页上它说“我没有控制权”**：`edge://newtab` 属于浏览器内部页面，任何扩展都无法注入。先打开真实网页（http/https），必要时刷新一次；如果还不行，确认扩展已重新加载到 v1.2。
+**在新建标签页上它说“我没有控制权”**：`edge://newtab` 属于浏览器内部页面，任何扩展都无法注入。先打开真实网页（http/https），必要时刷新一次；如果还不行，确认扩展已重新加载到 v2.0。
 
 **视频读不到画面**：它确实看不到视频像素，但可以 `control_media` 播放/暂停/跳进度/调音量，也可以点开字幕、笔记、AI 总结面板再读文本。要让它直接描述画面，需要支持图片输入的模型。
 
 **进度条拖不动**：先让它用 `control_media seek`（对 `<video>` 最可靠）；自定义播放器再用 `drag`。原生播放器的按钮在阴影 DOM 里，点不到是正常的。
 
-**回答很慢/很贵**：把「单次附带页面字数上限」调小，或关掉顶部页面开关只问通用问题。
+**回答很慢/很贵**：把「单次附带页面字数上限」调小，或关掉顶部页面开关只问通用问题。持续任务会执行到完成；想尽快结束就点停止，或把「任务安全上限」调低。
 
 **它只说“你可以点击…”却不动手**：确认顶部的指针图标是亮的；模型需要支持 function calling；再检查设置里「允许 AI 操作页面」是否勾选。
 

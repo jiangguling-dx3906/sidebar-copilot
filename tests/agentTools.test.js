@@ -24,6 +24,17 @@ test('exposes the page tools with JSON schemas', () => {
     'drag',
     'set_range',
     'hover',
+    'double_click',
+    'right_click',
+    'focus',
+    'clear',
+    'check',
+    'uncheck',
+    'select_text',
+    'get_element_info',
+    'scroll_inside',
+    'tab_control',
+    'skill',
   ]) {
     assert.ok(names.includes(name), name);
   }
@@ -41,6 +52,8 @@ test('risky actions are detected by visible text', () => {
   assert.equal(isRiskyAction('click', { text: '删除全部' }), true);
   assert.equal(isRiskyAction('select_option', { option: '确认' }), true);
   assert.equal(isRiskyAction('press_key', { key: 'Enter' }), true);
+  assert.equal(isRiskyAction('press_key', { key: 'a', modifiers: ['Control'] }), true);
+  assert.equal(isRiskyAction('tab_control', { action: 'close', tab_id: 3 }), true);
   assert.equal(isRiskyAction('click', { text: '登录' }), false);
   assert.equal(isRiskyAction('open_url', { url: 'https://example.com/delete' }), false);
   assert.equal(isRiskyAction('scroll_page', { direction: 'down' }), false);
@@ -60,12 +73,16 @@ test('describes actions for the transcript', () => {
   assert.equal(describeAction('set_range', { selector: '#vol', percent: 80 }), '把 #vol 设为 80%');
   assert.equal(describeAction('drag', { from: { selector: '#bar' }, dx: 120 }), '拖拽 #bar → 右移 120px');
   assert.equal(describeAction('hover', { text: '更多' }), '悬停 “更多”');
+  assert.equal(describeAction('check', { selector: '#agree' }), '勾选 #agree');
+  assert.equal(describeAction('tab_control', { action: 'back' }), '后退');
+  assert.equal(describeAction('skill', { name: 'form' }), '加载技能 form');
 });
 
 test('status labels cover every state', () => {
   assert.equal(actionStatusLabel('ok'), '完成');
   assert.equal(actionStatusLabel('error'), '失败');
   assert.equal(actionStatusLabel('skipped'), '已跳过');
+  assert.equal(actionStatusLabel('uncertain'), '待确认');
   assert.equal(actionStatusLabel('running'), '执行中');
   assert.equal(actionStatusLabel('unknown'), '');
 });

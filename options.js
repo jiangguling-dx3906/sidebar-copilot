@@ -71,8 +71,8 @@ function fillForm(values) {
   el.historyLabel.textContent = String(values.historyLimit ?? 12);
   el.allowPageActions.checked = values.allowPageActions !== false;
   el.confirmActions.checked = Boolean(values.confirmActions);
-  el.maxAgentSteps.value = String(values.maxAgentSteps ?? 6);
-  el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 6);
+  el.maxAgentSteps.value = String(values.maxAgentSteps ?? 100);
+  el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 100);
   el.dshSync.checked = Boolean(values.dshSync);
   el.dshBridgeUrl.value = values.dshBridgeUrl || DEFAULT_SETTINGS.dshBridgeUrl;
   el.dshServerUrl.value = values.dshServerUrl || DEFAULT_SETTINGS.dshServerUrl;
@@ -301,7 +301,7 @@ function readForm() {
     includePage: settings.includePage !== false,
     allowPageActions: el.allowPageActions.checked,
     confirmActions: el.confirmActions.checked,
-    maxAgentSteps: Number(el.maxAgentSteps.value),
+    maxAgentSteps: Math.max(20, Math.min(300, Number(el.maxAgentSteps.value) || 100)),
     systemExtra: el.systemExtra.value.trim(),
     locale: el.locale.value,
     panelBg: el.useCustomBg.checked ? el.panelBg.value : '',

@@ -7,6 +7,8 @@ import { PAGE_TOOLS, describeAction, isRiskyAction, actionStatusLabel } from './
 import { parseToolArguments } from './lib/toolcalls.js';
 import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 import { applyPanelTheme } from './lib/theme.js';
+import { getSkill } from './lib/skills.js';
+import { makeRequestId, sameDocument } from './lib/protocol.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -75,6 +77,8 @@ const state = {
   sessions: [],
   activeSessionId: null,
   historyOpen: false,
+  documentId: '',
+  snapshotId: '',
 };
 
 /* ------------------------------------------------------------------ */
@@ -236,8 +240,11 @@ function bindEvents() {
     }
   });
 
-  chrome.tabs.onActivated.addListener(() => {
-    if (!state.busy) readPage({ silent: true });
+  chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+    if (state.busy) return;
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab || tab.url?.startsWith('chrome-extension://')) return;
+    readPage({ silent: true });
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -293,6 +300,7 @@ function applyActionsToggle() {
     : enabled
       ? t('panel.actionsOn')
       : t('panel.actionsOff');
+  renderPrompts();
 }
 
 function hasCredentials(settings) {
@@ -343,11 +351,22 @@ async function readPage({ silent = false } = {}) {
   setStatus(t('panel.statusReading'));
 
   try {
-    const tab = await getActiveTab();
+    let tab = await getActiveTab();
+    // When the side panel itself is focused as a tab (E2E and some detached
+    // windows), keep operating on the page the panel was bound to.
+    if (tab?.url?.startsWith('chrome-extension://') && state.tabId != null) {
+      tab = await chrome.tabs.get(state.tabId).catch(() => tab);
+    }
     state.tab = tab;
-    state.tabId = tab?.id ?? null;
 
     if (!tab?.id || !/^(https?|file):/i.test(tab.url || '')) {
+      // A detached side panel is itself a chrome-extension tab in tests and
+      // some windows; do not let focusing it erase the bound page/selection.
+      if (tab?.url?.startsWith('chrome-extension://') && state.page) {
+        state.tab = null;
+        return;
+      }
+      state.tabId = tab?.id ?? null;
       state.page = null;
       state.selection = '';
       state.useSelection = false;
@@ -358,6 +377,8 @@ async function readPage({ silent = false } = {}) {
       });
       return;
     }
+
+    state.tabId = tab.id;
 
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -370,6 +391,8 @@ async function readPage({ silent = false } = {}) {
     });
 
     const page = injection?.result;
+    state.documentId = injection?.documentId || '';
+    state.snapshotId = '';
     if (!page) throw new Error(t('panel.pageNoContent'));
 
     const pageChanged = state.page?.url !== page.url;
@@ -396,6 +419,8 @@ async function readPage({ silent = false } = {}) {
     });
   } catch (error) {
     state.page = null;
+    state.documentId = '';
+    state.snapshotId = '';
     renderPageBar({
       title: t('panel.pageUnreadableTitle'),
       sub: explainInjectionError(error),
@@ -470,6 +495,7 @@ function updateEmptyHint() {
 function renderPrompts() {
   els.promptGrid.textContent = '';
   for (const prompt of getQuickPrompts()) {
+    if (prompt.needsActions && !state.settings?.allowPageActions) continue;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'prompt-card';
@@ -537,7 +563,7 @@ async function send(rawText) {
 }
 
 async function runAgent() {
-  const maxRounds = Math.max(1, Math.min(10, Number(state.settings.maxAgentSteps) || 6));
+  const maxRounds = Math.max(10, Math.min(300, Number(state.settings.maxAgentSteps) || 100));
   const allowTools =
     Boolean(state.settings.allowPageActions) &&
     isScriptableUrl(state.tab?.url || state.page?.url) &&
@@ -642,7 +668,7 @@ async function runAgent() {
         updateMessage(assistant, index);
         try {
           action.result = await executeTool(action);
-          action.status = 'ok';
+          action.status = action.result?.uncertain ? 'uncertain' : 'ok';
         } catch (error) {
           action.status = 'error';
           action.error = localizeActionError(error?.message || String(error));
@@ -676,7 +702,7 @@ async function runAgent() {
       if (lastAssistant) {
         lastAssistant.streaming = false;
         if (exhausted && !lastAssistant.content.trim() && lastAssistant.actions?.length) {
-          lastAssistant.content = t('panel.maxRounds', { n: maxRounds });
+          lastAssistant.content = t('panel.safetyCap', { n: maxRounds });
         }
         updateMessage(lastAssistant, state.messages.indexOf(lastAssistant));
       }
@@ -693,9 +719,12 @@ function pushToolResult(action) {
   state.apiMessages.push({
     role: 'tool',
     tool_call_id: action.id,
-    content: JSON.stringify(
-      action.status === 'ok' ? action.result : { ok: false, error: action.error || action.status },
-    ),
+    content: JSON.stringify({
+      ok: action.status !== 'error',
+      status: action.status,
+      ...(action.result && typeof action.result === 'object' ? action.result : {}),
+      ...(action.status === 'error' ? { error: action.error || action.status } : {}),
+    }),
   });
 }
 
@@ -743,8 +772,26 @@ function confirmIfNeeded(action, assistant) {
 }
 
 async function executeTool(action) {
+  if (action.name === 'skill') {
+    const skill = getSkill(action.args?.name);
+    if (!skill) throw new Error(`未知技能：${action.args?.name || ''}`);
+    return {
+      ok: true,
+      skill: action.args.name,
+      summary: skill.summary[getLocale() === 'en' ? 'en' : 'zh'],
+      steps: skill.steps[getLocale() === 'en' ? 'en' : 'zh'],
+      verified: true,
+    };
+  }
+
+  if (action.name === 'tab_control') return tabControl(action.args || {});
+  if (action.name === 'open_url' && action.args?.new_tab) return openInNewTab(action.args);
+
   if (state.tabId == null) throw new Error(t('panel.noTab'));
-  const tab = await getActiveTab().catch(() => null);
+  let tab = await getActiveTab().catch(() => null);
+  if (tab?.url?.startsWith('chrome-extension://') && state.tabId != null) {
+    tab = await chrome.tabs.get(state.tabId).catch(() => tab);
+  }
   if (tab?.id != null && tab.id !== state.tabId) {
     throw new Error(t('panel.tabChanged'));
   }
@@ -752,16 +799,12 @@ async function executeTool(action) {
   if (action.name === 'wait_for') {
     const result = await waitFor(action.args || {});
     if (!result.ok) throw new Error(result.error || t('panel.waitTimeoutShort'));
-    return result;
+    return { ...result, verified: true, requestId: action.id };
   }
 
-  if (action.name === 'read_page') {
-    const result = await injectAction('read_page', {});
-    if (!result?.ok) throw new Error(result?.error || t('panel.readFailed'));
-    return result;
-  }
-
-  const result = await injectAction(
+  const expectedDocument = state.documentId;
+  const requestId = action.id || makeRequestId('act');
+  const { result, documentId, frameId } = await injectAction(
     action.name,
     action.args || {},
     action.name === 'control_media' ? { allFrames: true } : {},
@@ -769,19 +812,160 @@ async function executeTool(action) {
   if (!result) throw new Error(t('panel.noResult'));
   if (result.ok === false) throw new Error(result.error || t('panel.actionFailed'));
 
-  if (action.name === 'open_url') {
-    await sleep(1800);
-    await readPage({ silent: true });
-  } else if (action.name === 'click') {
-    await sleep(350);
+  const currentDocument = documentId || state.documentId;
+  const documentChanged = Boolean(
+    expectedDocument && currentDocument && !sameDocument({ documentId: expectedDocument }, { documentId: currentDocument }),
+  );
+
+  if (action.name === 'inspect_page') {
+    state.snapshotId = result.snapshotId || '';
+    state.documentId = currentDocument || state.documentId;
+    result.documentId = state.documentId;
+    result.requestId = requestId;
+    return result;
+  }
+
+  if (documentChanged && action.name !== 'open_url' && action.name !== 'control_media') {
+    result.verified = false;
+    result.uncertain = true;
+    result.postcondition = { type: 'documentChanged', matched: false };
+  }
+
+  if (['click', 'double_click', 'right_click'].includes(action.name)) {
+    const beforeText = state.page?.text || '';
+    await sleep(400);
     const after = await getActiveTab().catch(() => null);
     if (after?.url && state.page?.url && after.url !== state.page.url) {
       await sleep(700);
       await readPage({ silent: true });
+      result.verified = true;
+      result.uncertain = false;
+      result.postcondition = { type: 'urlChanged', matched: true, url: after.url };
+    } else if (action.name !== 'right_click') {
+      await sleep(250);
+      await readPage({ silent: true });
+      const afterText = state.page?.text || '';
+      if (afterText && afterText !== beforeText) {
+        result.verified = true;
+        result.uncertain = false;
+        result.postcondition = { type: 'domTextChanged', matched: true };
+      } else if (result.verified !== true) {
+        result.uncertain = true;
+        result.postcondition = { type: 'noObservableChange', matched: false };
+      }
+    } else if (result.verified !== true) {
+      result.uncertain = true;
+      result.postcondition = { type: 'noObservableChange', matched: false };
     }
   }
 
-  return result;
+  if (action.name === 'open_url') {
+    await sleep(1600);
+    await readPage({ silent: true });
+    result.verified = true;
+    result.uncertain = false;
+    result.postcondition = { type: 'urlChanged', matched: true, url: state.page?.url };
+  }
+
+  if (action.name === 'type_text' && result.submitted) {
+    await sleep(600);
+    const after = await getActiveTab().catch(() => null);
+    if (after?.url && state.page?.url && after.url !== state.page.url) {
+      await sleep(600);
+      await readPage({ silent: true });
+    }
+  }
+
+  if (result.verified === false && result.uncertain !== true) result.uncertain = true;
+  return {
+    ...result,
+    requestId,
+    documentId: currentDocument,
+    frameId: frameId ?? 0,
+  };
+}
+
+async function tabControl(args = {}) {
+  const action = String(args.action || 'list');
+  const tabId = Number(args.tab_id) || state.tabId;
+
+  if (action === 'list') {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    return {
+      ok: true,
+      tabs: tabs.slice(0, 40).map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        url: tab.url,
+        active: Boolean(tab.active),
+        index: tab.index,
+      })),
+      verified: true,
+      postcondition: { type: 'tabList', matched: true },
+    };
+  }
+
+  if (action === 'new') {
+    const url = String(args.url || 'about:blank');
+    if (url !== 'about:blank' && !/^https?:/i.test(url)) throw new Error(t('panel.onlyHttp'));
+    const tab = await chrome.tabs.create({ url, active: true });
+    state.tabId = tab.id;
+    await sleep(900);
+    await readPage({ silent: true });
+    return { ok: true, tabId: tab.id, url, verified: true, postcondition: { type: 'tabCreated', matched: Boolean(tab.id) } };
+  }
+
+  if (action === 'activate') {
+    if (!tabId) throw new Error('需要 tab_id');
+    await chrome.tabs.update(tabId, { active: true });
+    state.tabId = tabId;
+    await sleep(300);
+    await readPage({ silent: true });
+    return { ok: true, tabId, verified: true, postcondition: { type: 'tabActivated', matched: true } };
+  }
+
+  if (action === 'close') {
+    if (!tabId) throw new Error('需要 tab_id');
+    if (tabId === state.tabId) throw new Error('不能关闭侧边栏所在的当前标签页；先切换到别的标签页');
+    await chrome.tabs.remove(tabId);
+    return { ok: true, closed: tabId, verified: true, postcondition: { type: 'tabClosed', matched: true } };
+  }
+
+  if (action === 'reload') {
+    if (!tabId) throw new Error('需要 tab_id');
+    await chrome.tabs.reload(tabId);
+    await sleep(1500);
+    if (tabId === state.tabId) await readPage({ silent: true });
+    return { ok: true, tabId, verified: true, postcondition: { type: 'tabReloaded', matched: true } };
+  }
+
+  if (action === 'back' || action === 'forward') {
+    if (!tabId) throw new Error('需要 tab_id');
+    const method = action === 'back' ? chrome.tabs.goBack : chrome.tabs.goForward;
+    if (typeof method !== 'function') throw new Error('当前浏览器不支持标签页前进/后退');
+    await method.call(chrome.tabs, tabId);
+    await sleep(1200);
+    if (tabId === state.tabId) await readPage({ silent: true });
+    return { ok: true, tabId, action, verified: true, postcondition: { type: `tab:${action}`, matched: true } };
+  }
+
+  throw new Error(`未知标签页操作：${action}`);
+}
+
+async function openInNewTab(args = {}) {
+  const url = String(args.url || '');
+  if (!/^https?:/i.test(url)) throw new Error(t('panel.onlyHttp'));
+  const tab = await chrome.tabs.create({ url, active: true });
+  state.tabId = tab.id;
+  await sleep(900);
+  await readPage({ silent: true });
+  return {
+    ok: true,
+    tabId: tab.id,
+    url,
+    verified: true,
+    postcondition: { type: 'tabCreated', matched: true, url },
+  };
 }
 
 async function injectAction(name, args, options = {}) {
@@ -797,50 +981,57 @@ async function injectAction(name, args, options = {}) {
           : { ok: false, code: 'SCRIPT_NOT_READY', error: fallback },
       args: [name, args, t('panel.scriptNotReady')],
     });
-    const values = injections.map((injection) => injection?.result).filter(Boolean);
-    if (!allFrames) return values[0] ?? null;
-    return values.find((value) => value.ok) || values[0] || null;
+    const entries = injections.map((injection) => ({
+      result: injection?.result || null,
+      documentId: injection?.documentId || '',
+      frameId: injection?.frameId ?? 0,
+    }));
+    if (!allFrames) return entries[0] || { result: null };
+    return entries.find((entry) => entry.result?.ok) || entries[0] || { result: null };
   };
 
-  let result;
+  let entry;
   try {
-    result = await run();
-  } catch (error) {
+    entry = await run();
+  } catch {
     // The frame may be mid-navigation; give it a moment and retry once.
     await sleep(500);
-    result = await run();
+    entry = await run();
   }
 
-  if (!result || result.code === 'SCRIPT_NOT_READY') {
+  if (!entry.result || entry.result.code === 'SCRIPT_NOT_READY') {
     await chrome.scripting.executeScript({ target, files: ['content.js'] });
-    result = await run();
+    entry = await run();
   }
 
-  return result;
+  return entry;
 }
 
 async function waitFor(args) {
-  const timeout = Math.min(Math.max(Number(args.timeout_ms) || 5000, 500), 15000);
+  const timeout = Math.min(Math.max(Number(args.timeout_ms) || 5000, 500), 30000);
   const query = String(args.selector || args.text || '');
+  const want = args.state === 'hidden' ? 'hidden' : 'visible';
+  if (!query) return { ok: false, error: 'wait_for 需要 text 或 selector' };
   const started = Date.now();
 
   while (Date.now() - started < timeout) {
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: state.tabId },
-      func: (needle, text) => {
-        if (text && document.body.innerText.includes(text)) return { count: 1, byText: true };
-        if (!window.__SC_ACT__) return { count: 0 };
-        return window.__SC_ACT__('inspect_page', { query: needle, limit: 5 });
+      func: (needle, text, hidden) => {
+        const present = text
+          ? document.body.innerText.includes(text)
+          : Boolean(window.__SC_ACT__ && window.__SC_ACT__('inspect_page', { query: needle, limit: 5 })?.count);
+        return { present, hidden };
       },
-      args: [query, String(args.text || '')],
+      args: [query, String(args.text || ''), want === 'hidden'],
     });
     const result = injection?.result;
-    if (result?.count > 0) {
-      return { ok: true, waited_ms: Date.now() - started, elements: result.elements || undefined };
+    if (result && (want === 'visible' ? result.present : !result.present)) {
+      return { ok: true, state: want, waited_ms: Date.now() - started };
     }
     await sleep(300);
   }
-  return { ok: false, error: t('panel.waitTimeout', { ms: timeout, query: query || args.text }) };
+  return { ok: false, error: t('panel.waitTimeout', { ms: timeout, query }) };
 }
 
 function sleep(ms) {
@@ -851,6 +1042,8 @@ function localizeActionError(message) {
   if (getLocale() !== 'en') return message;
   const rules = [
     [/^ref "(.+)" 已失效.*$/, 'ref "$1" is stale; run inspect_page again'],
+    [/^ref "(.+)" 属于旧快照.*$/, 'ref "$1" is from a stale snapshot; run inspect_page again'],
+    [/^拒绝填写验证码.*$/, 'Refusing a sensitive field; ask the user to type it'],
     [/^找不到元素：(.+)$/, 'Element not found: $1'],
     [/^元素存在但不可见$/, 'Element exists but is not visible'],
     [/^页面上找不到包含 “(.+)” 的可点击元素$/, 'No clickable element contains “$1”'],
@@ -872,6 +1065,8 @@ function localizeActionError(message) {
     [/^需要 to，或 dx\/dy 之一$/, 'Provide to, or dx/dy'],
     [/^URL 不合法$/, 'Invalid URL'],
     [/^只允许 http\(s\)，收到 (.+)$/, 'Only http(s) URLs are allowed; got $1'],
+    [/^不能关闭侧边栏所在的当前标签页.*$/, "Can't close the tab that hosts this side panel; switch to another tab first"],
+    [/^当前浏览器不支持标签页前进\/后退$/, 'This browser does not support tab back/forward'],
   ];
   for (const [pattern, replacement] of rules) {
     if (pattern.test(message)) return message.replace(pattern, replacement);
@@ -1338,8 +1533,10 @@ const ACTION_ICONS = {
   pending: '…',
   running: '◌',
   ok: '✓',
+  uncertain: '?',
   error: '!',
   skipped: '–',
+  cancelled: '–',
 };
 
 function buildActionCard(action) {
@@ -1396,7 +1593,7 @@ function buildActionCard(action) {
     card.appendChild(row);
   }
 
-  if (action.status === 'ok' && action.result) {
+  if ((action.status === 'ok' || action.status === 'uncertain') && action.result) {
     const details = document.createElement('details');
     details.className = 'action-result';
     const summary = document.createElement('summary');

@@ -13,7 +13,9 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 ## What it does
 
 - **Reads the page first**: a content script extracts the body text (title, text, tables, links, selection) and sends it with your question.
-- **Actually operates the page**: inspect elements, click, type, drag, control video progress/volume/speed, scroll, and open links — checking the result after each step, with confirmation before risky actions.
+- **Actually operates the page**: inspect elements, click/double-click/right-click, type, check, clear, select text, drag, scroll inside containers, switch tabs, and control video progress/volume/speed; open shadow DOM supported.
+- **Continuous tasks and skills**: no six-step stop; the model keeps going until done or you press Stop, with form / media / extract / navigate / verify / inspect playbooks.
+- **Verified actions**: input, select, range, media, and scroll read the state back; results are Done / Uncertain / Failed and bound to `tabId + documentId + snapshotId`.
 - **Two-way desktop sync**: list DeepSeek Harness sessions read-only; after installing the desktop plugin, write extension conversations as real DSH sessions visible on both sides.
 - **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
 - **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
@@ -139,21 +141,34 @@ With actions enabled, the model doesn't just tell you what to click — it execu
 
 | Tool | What it does |
 | --- | --- |
-| `inspect_page` | Lists interactive elements (buttons/links/inputs/selects) with `ref`, label, bounds, and visibility |
-| `click` | Clicks an element by `ref`, CSS selector, or visible text |
-| `type_text` | Fills inputs or contenteditable elements, optionally submitting with Enter |
+| `inspect_page` | Lists interactive elements (buttons/links/inputs/selects/open shadow DOM) with snapshot, `ref`, label, value, bounds, and visibility |
+| `click` / `double_click` / `right_click` | Click, double-click, or right-click by `ref`, CSS selector, visible text, or viewport coordinates |
+| `type_text` | Fills inputs or contenteditable elements, optionally submits with Enter, and reads the value back |
+| `focus` / `clear` / `select_text` | Focus, clear, or select all text in an input |
+| `check` / `uncheck` | Check a checkbox, clear it, or choose a radio |
+| `get_element_info` | Reads one element’s text, value, checked/selected state, attributes, bounds, and visibility |
 | `select_option` | Picks an option in a native `<select>` |
-| `press_key` | Sends Enter, Escape, Tab, etc. |
-| `scroll_page` | Scrolls by direction, or brings an element into view |
-| `open_url` | Opens an http(s) link in the current tab |
+| `press_key` | Sends Enter, Escape, Tab, arrows, or Control/Shift/Alt/Meta combinations, with repeat |
+| `scroll_page` / `scroll_inside` | Scrolls the page, or scrolls inside a dialog/list/container |
+| `open_url` | Opens an http(s) link in the current tab or a new tab |
 | `read_page` | Re-reads the page after navigation or updates (including media state) |
-| `wait_for` | Waits for text or an element, up to 15 s |
-| `control_media` | Play/pause, seek (percent or seconds), volume, mute, playback rate |
+| `wait_for` | Waits for text or an element to appear or disappear, up to 30 s |
+| `control_media` | Play/pause, seek (percent or seconds), volume, mute, playback rate, with state read-back |
 | `drag` | Drags an element with from/to or dx/dy — custom progress bars, sliders, sortable lists |
 | `set_range` | Sets a native `<input type=range>` (volume slider, settings sliders) |
 | `hover` | Hovers to open menus or tooltips |
+| `tab_control` | Lists, opens, activates, reloads, goes back/forward, or closes tabs; closing the panel’s own tab is refused |
+| `skill` | Loads a playbook for form / media / extract / navigate / verify / inspect |
 
-A task runs at most 6 consecutive steps (1–10 in Settings). Each step leaves a card in the conversation — status, target, result; expand “View result” for the structured response. The model reads the result and decides the next step until it finishes or hits the limit.
+A task **keeps running until it finishes or you press Stop**; the old six-step limit is gone. The default 100-step setting is only a safety cap (20–300). Each step leaves a card with status **Done / Uncertain / Failed**:
+
+- **Done**: the postcondition was verified (value read back, media state, scroll position, etc.).
+- **Uncertain**: the action was dispatched but no observable change, a document change occurred, or it timed out; never auto-replay a click/submit.
+- **Failed**: a definite failure with a reason.
+
+The current page is bound to `tabId + documentId + snapshotId`; after navigation or a document replacement old refs are stale and the model must inspect again.
+
+When a task matches, the model calls `skill` for a step-by-step playbook (forms, media, extraction, tab navigation, verification, inspection); these are instructions, not hard-coded scripts.
 
 > Actions require function calling. DeepSeek `deepseek-chat` and OpenAI `gpt-4o-mini` support it; models without tool support only produce text suggestions.
 
@@ -184,8 +199,10 @@ It returns real state (currentTime, duration, paused, volume, readyState), plus 
 
 ### Safety boundaries
 
-- **Risky actions require confirmation**: pay, order, delete, submit, send, sign out, confirm, etc. always show “Allow / Skip”, even if per-step confirmation is off.
-- **No secrets**: `type_text` refuses `type=password`, hidden, and file inputs; the model is told to stop and let you fill them in.
+- **Risky actions require confirmation**: pay, order, delete, submit, send, sign out, close tab, confirm, etc. always show “Allow / Skip”, even if per-step confirmation is off.
+- **No secrets**: `type_text` refuses `type=password`, hidden, file, and fields named like OTP/token/secret/API key/card/CVV; `inspect_page` and `get_element_info` omit those values.
+- **Target binding**: every action checks the tab and `documentId`; refs from an old document/snapshot are rejected.
+- **Verification**: input, select, range, media, and scroll actions read the state back; unconfirmed results are marked Uncertain, not fake success.
 - **Stop anytime**: the square button (or Esc) aborts the current request and subsequent actions.
 - **Tab check**: every action verifies it is still the same tab; switching tabs aborts instead of acting on the wrong page.
 - **One-click read-only**: with the pointer icon off, tool definitions are no longer sent.
@@ -197,10 +214,12 @@ It returns real state (currentTime, duration, paused, volume, readyState), plus 
 ### Operation limits
 
 - Click, type, and drag target the top-level document only; **media control tries all frames**, so embedded players usually work.
+- **Open shadow DOM** (`mode: "open"`) is searched automatically; closed shadow roots remain inaccessible.
 - Clicks and drags use synthetic DOM events (`pointerdown → pointermove → pointerup`), which covers most custom players and sliders. Native `<video controls>` buttons live in shadow DOM and cannot be clicked — use `control_media`.
 - Canvas, file uploads, and click/type inside cross-origin iframes are not implemented (media control excepted).
 - Custom dropdowns (`role=combobox`) take two steps (“click, then click the option”); native `<select>` works in one.
-- `ref`s expire when the page re-renders; the model re-runs `inspect_page`.
+- `ref`s expire when the page re-renders or navigates; the model re-runs `inspect_page`.
+- No `chrome.debugger`/CDP screenshots or accessibility tree yet; true browser input, pixels, and complex iframes are a later extension, not current behavior.
 - `edge://`, `chrome://`, the extension store, the PDF viewer, and `view-source:` cannot be injected — no extension can operate them. `edge://newtab` is one of them; open a real page first.
 
 ## How it works
@@ -253,7 +272,7 @@ node --test "tests/*.test.js"
 node scripts/e2e.mjs
 ```
 
-`scripts/e2e.mjs` loads Playwright from `PLAYWRIGHT_CORE` if set, otherwise from the locally installed `playwright-core`. It verifies page extraction and noise filtering (nav/form/footer), quick prompts, Markdown tables and code blocks, selection reaching the system prompt, the **tool-call loop (fill → click → the page actually changes → continue)**, risky-action confirmation and skipping, **media seek/volume, range sliders and custom dragging**, and the settings page, then writes screenshots to `docs/screenshots/`.
+`scripts/e2e.mjs` loads Playwright from `PLAYWRIGHT_CORE` if set, otherwise from the locally installed `playwright-core`. It verifies page extraction and noise filtering, quick prompts, Markdown, selection reaching the system prompt, the **tool-call loop**, an **8-step task (proving the old six-step limit is gone)**, risky-action confirmation and skipping, **media seek/volume, range sliders and custom dragging**, **check/uncheck, focus, clear, select_text, get_element_info, open shadow DOM, scroll-inside, and key presses**, and the settings page, then writes screenshots to `docs/screenshots/`.
 
 Regenerate icons (requires Pillow):
 
@@ -267,8 +286,8 @@ python scripts/make-icons.py
 sidebar-copilot/
 ├─ manifest.json          MV3 manifest
 ├─ background.js          side panel behavior, context menus, shortcut
-├─ content.js             page extraction (isolated world, read-only by default)
-├─ panel.html/css/js      side panel UI and chat logic
+├─ content.js             page extraction, target snapshots, action execution and verification
+├─ panel.html/css/js      side panel UI, continuous agent loop, action cards
 ├─ options.html/css/js    settings page
 ├─ welcome.html/js        first-install guide
 ├─ lib/
@@ -278,6 +297,8 @@ sidebar-copilot/
 │  ├─ markdown.js         safe Markdown → HTML
 │  ├─ prompts.js          system prompt, page trimming, quick prompts
 │  ├─ agentTools.js       page-action tool definitions, labels, risk detection
+│  ├─ skills.js           form/media/extract/navigate/verify/inspect playbooks
+│  ├─ protocol.js         target binding, request IDs, verified/uncertain classification
 │  ├─ i18n.js             Chinese/English UI strings and locale switching
 │  ├─ theme.js            custom background colors and readable palettes
 │  ├─ sessions.js         multi-conversation history, titles, export
@@ -301,7 +322,7 @@ sidebar-copilot/
 
 **The model says it cannot read the page**: it's an internal page/PDF, or injection is blocked; try a regular page.
 
-**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v1.2.
+**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v2.0.
 
 **It can't see the video**: it truly cannot see pixels, but `control_media` can play/pause/seek/volume, and it can open captions, notes, or AI-summary panels and read the text. Describing the picture requires an image-capable model.
 

@@ -700,6 +700,16 @@ body {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 
+.action-card.uncertain {
+  border-color: color-mix(in srgb, #d97706 45%, var(--border));
+}
+
+.action-card.uncertain .action-icon {
+  color: #b45309;
+  border-color: color-mix(in srgb, #d97706 40%, transparent);
+  background: var(--warn-soft);
+}
+
 .action-head {
   display: flex;
   align-items: center;

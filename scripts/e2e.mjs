@@ -48,7 +48,13 @@ const FIXTURE = `<!doctype html>
         <input id="name" placeholder="你的名字">
         <button id="greet" type="button">打个招呼</button>
         <button id="danger" type="button">删除全部</button>
+        <label><input id="agree" type="checkbox"> 同意条款</label>
         <p id="output">尚未打招呼</p>
+        <div id="shadow-host"></div>
+        <div id="scroller" style="height:60px;overflow:auto;border:1px solid #ccc">
+          <div style="height:320px">可滚动内容</div>
+          <button id="inside" type="button">内部按钮</button>
+        </div>
       </div>
       <div id="media-lab">
         <audio id="clip" preload="auto" src="${WAV_DATA_URI}"></audio>
@@ -85,6 +91,11 @@ const FIXTURE = `<!doctype html>
     });
     document.getElementById('danger').addEventListener('click', () => {
       document.getElementById('output').textContent = '（已删除）';
+    });
+    const shadow = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<button id="shadow-btn" type="button">Shadow 按钮</button><input id="shadow-input" placeholder="shadow input">';
+    shadow.querySelector('#shadow-btn').addEventListener('click', () => {
+      document.getElementById('output').textContent = 'shadow clicked';
     });
 
     let dragging = false;
@@ -290,6 +301,50 @@ async function main() {
     await site.goto(fixtureUrl, { waitUntil: 'domcontentloaded' });
     await site.bringToFront();
 
+    // Directly exercise the page-side tool layer (independent of the model).
+    await site.addScriptTag({ path: path.join(ROOT, 'content.js') });
+    const toolState = await site.evaluate(async () => {
+      const run = (name, args) => window.__SC_ACT__(name, args || {});
+      const inspect = await run('inspect_page', { query: '#name' });
+      const checked = await run('check', { selector: '#agree' });
+      const unchecked = await run('uncheck', { selector: '#agree' });
+      const focus = await run('focus', { selector: '#name' });
+      const cleared = await run('clear', { selector: '#name' });
+      const typed = await run('type_text', { selector: '#name', text: 'Alice' });
+      const selected = await run('select_text', { selector: '#name' });
+      const info = await run('get_element_info', { selector: '#name' });
+      const shadowInspect = await run('inspect_page', { query: '#shadow-btn' });
+      const shadowClick = await run('click', { selector: '#shadow-btn' });
+      const scroll = await run('scroll_inside', { selector: '#scroller', direction: 'down', amount: 100 });
+      const pressed = await run('press_key', { key: 'Tab' });
+      return {
+        snapshot: Boolean(inspect.snapshotId),
+        checked: checked.verified,
+        unchecked: unchecked.verified,
+        focus: focus.verified,
+        cleared: cleared.verified,
+        typed: typed.verified,
+        selected: selected.verified,
+        info: info.verified && info.value === 'Alice',
+        shadow: shadowInspect.count > 0 && shadowClick.ok,
+        shadowClicked: document.getElementById('output').textContent === 'shadow clicked',
+        scroll: scroll.verified && scroll.scrollTop > 0,
+        pressed: pressed.ok && pressed.uncertain === true,
+      };
+    });
+    for (const [name, ok] of Object.entries(toolState)) {
+      check(`page tool: ${name}`, ok === true, String(ok));
+    }
+    await site.evaluate(() => {
+      const name = document.getElementById('name');
+      name.value = '';
+      name.blur();
+      document.getElementById('agree').checked = false;
+      document.getElementById('output').textContent = '尚未打招呼';
+      document.getElementById('scroller').scrollTop = 0;
+      window.getSelection()?.removeAllRanges();
+    });
+
     const panel = await context.newPage();
     watch(panel, 'panel');
     await panel.goto(`chrome-extension://${extensionId}/panel.html`);
@@ -313,7 +368,7 @@ async function main() {
         includePage: true,
         allowPageActions: true,
         confirmActions: false,
-        maxAgentSteps: 6,
+        maxAgentSteps: 100,
         locale: 'zh',
         systemExtra: '',
       },
@@ -336,7 +391,7 @@ async function main() {
     }));
     check('page bar shows the page title', pageBar.title.includes('DeepSeek V4'), pageBar.title);
     check('page bar shows extracted chars', /字/.test(pageBar.sub), pageBar.sub);
-    check('quick prompts rendered', pageBar.prompts === 6, String(pageBar.prompts));
+    check('quick prompts rendered', pageBar.prompts === 9, String(pageBar.prompts));
 
     await shot(panel, 'panel-empty.png');
 
@@ -372,6 +427,23 @@ async function main() {
           return;
         }
         await fulfill(sseText('已经帮你填好名字并打了招呼。'));
+        return;
+      }
+
+      if (mock.mode === 'long') {
+        if (agentBodies.length <= 8) {
+          await fulfill(
+            sseToolCalls([
+              {
+                id: `call_long_${agentBodies.length}`,
+                name: 'get_element_info',
+                args: { selector: '#name' },
+              },
+            ]),
+          );
+          return;
+        }
+        await fulfill(sseText('长任务完成。'));
         return;
       }
 
@@ -437,6 +509,7 @@ async function main() {
       selection.removeAllRanges();
       selection.addRange(range);
     });
+    console.log('selection before refresh:', await site.evaluate(() => String(window.getSelection()).slice(0, 40)));
 
     await panel.click('#refreshPage');
     await panel.waitForSelector('#selectionChip:not(.hidden)', { timeout: 15000 });
@@ -444,7 +517,7 @@ async function main() {
       text: document.getElementById('selectionChip').textContent,
       count: Number(document.getElementById('selectionChip').dataset.count),
     }));
-    check('selection chip appears', selectionChip.count > 0, selectionChip.text);
+    check('selection chip appears', Number(selectionChip.count) > 0, JSON.stringify(selectionChip));
 
     await panel.click('#newChat');
     requestBody = null;
@@ -468,7 +541,7 @@ async function main() {
     await panel.press('#input', 'Enter');
 
     await panel.waitForFunction(
-      () => document.querySelectorAll('.action-card.ok').length >= 2,
+      () => document.querySelectorAll('.action-card.ok, .action-card.uncertain').length >= 2,
       null,
       { timeout: 20000 },
     );
@@ -489,7 +562,11 @@ async function main() {
       messages: document.querySelectorAll('.msg').length,
     }));
     check('two action cards rendered', actionState.cards.length === 2, String(actionState.cards.length));
-    check('actions completed', actionState.cards.every((card) => card.status.includes('ok')), '');
+    check(
+      'actions completed',
+      actionState.cards.every((card) => /\b(ok|uncertain)\b/.test(card.status)),
+      JSON.stringify(actionState.cards.map((card) => card.status)),
+    );
     check('action labels describe the work', actionState.cards[0].label.includes('小明'), actionState.cards[0].label);
     check('final assistant message arrives', actionState.final.includes('填好名字'), actionState.final);
     check('conversation has three messages', actionState.messages === 3, String(actionState.messages));
@@ -546,7 +623,7 @@ async function main() {
     await panel.fill('#input', '把视频进度拖到一半，音量调到 80%，滑块拖到右边');
     await panel.press('#input', 'Enter');
     await panel.waitForFunction(
-      () => document.querySelectorAll('.action-card.ok').length >= 4,
+      () => document.querySelectorAll('.action-card.ok, .action-card.uncertain').length >= 4,
       null,
       { timeout: 25000 },
     );
@@ -580,6 +657,31 @@ async function main() {
     check('no action failed', mediaState.failed === 0, String(mediaState.failed));
 
     await shot(panel, 'panel-media.png');
+
+    // --- long task: more than the old six-step limit ---------------------
+    await panel.click('#newChat');
+    mock.mode = 'long';
+    agentBodies = [];
+    await panel.fill('#input', '连续执行八步');
+    await panel.press('#input', 'Enter');
+    await panel.waitForFunction(
+      () => document.querySelectorAll('.action-card.ok, .action-card.uncertain').length >= 8,
+      null,
+      { timeout: 30000 },
+    );
+    await panel.waitForFunction(
+      () =>
+        document.querySelectorAll('.msg.assistant').length >= 2 &&
+        !document.querySelector('.msg.assistant .caret'),
+      null,
+      { timeout: 30000 },
+    );
+    const longState = await panel.evaluate(() => ({
+      cards: document.querySelectorAll('.action-card.ok, .action-card.uncertain').length,
+      final: Array.from(document.querySelectorAll('.msg.assistant .md')).at(-1)?.textContent || '',
+    }));
+    check('agent continues past six steps', longState.cards >= 8, String(longState.cards));
+    check('long task reaches a final answer', longState.final.includes('长任务完成'), longState.final.slice(0, 20));
 
     // --- English UI and prompt ------------------------------------------
     await panel.evaluate(

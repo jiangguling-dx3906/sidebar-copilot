@@ -61,7 +61,8 @@ test('appends the user extra instructions', () => {
 test('adds page action rules only when enabled', () => {
   const withActions = buildSystemPrompt({ page, allowActions: true, maxSteps: 5 });
   assert.ok(withActions.includes('页面操作'));
-  assert.ok(withActions.includes('最多 5 轮'));
+  assert.ok(withActions.includes('5 步安全上限'));
+  assert.ok(withActions.includes('form'));
   const withoutActions = buildSystemPrompt({ page });
   assert.ok(!withoutActions.includes('页面操作'));
 });

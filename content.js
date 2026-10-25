@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '2.0.0';
   if (window.__SC_EXTRACT__ && window.__SC_EXTRACT_VERSION__ === VERSION) return;
   window.__SC_EXTRACT_VERSION__ = VERSION;
 
@@ -271,6 +271,58 @@
   const registry = new Map();
   const refByElement = new WeakMap();
   let refSequence = 0;
+  let snapshotId = '';
+  let snapshotRefs = new Set();
+  let deepRoots = null;
+
+  function nextSnapshot() {
+    snapshotId =
+      globalThis.crypto?.randomUUID?.() ||
+      `snap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    snapshotRefs = new Set();
+    deepRoots = null;
+    return snapshotId;
+  }
+
+  function rootsDeep() {
+    if (deepRoots) return deepRoots;
+    const roots = [document];
+    const visit = (root) => {
+      let nodes;
+      try {
+        nodes = root.querySelectorAll('*');
+      } catch {
+        return;
+      }
+      for (const node of nodes) {
+        if (!node.shadowRoot) continue;
+        roots.push(node.shadowRoot);
+        visit(node.shadowRoot);
+      }
+    };
+    visit(document);
+    deepRoots = roots;
+    return roots;
+  }
+
+  function queryAllDeep(selector) {
+    const found = [];
+    const seen = new Set();
+    for (const root of rootsDeep()) {
+      let nodes;
+      try {
+        nodes = root.querySelectorAll(selector);
+      } catch {
+        return [];
+      }
+      for (const node of nodes) {
+        if (seen.has(node)) continue;
+        seen.add(node);
+        found.push(node);
+      }
+    }
+    return found;
+  }
 
   function isVisibleElement(element) {
     if (!(element instanceof Element)) return false;
@@ -295,9 +347,27 @@
     );
   }
 
+  function isSensitiveField(element) {
+    const type = (element.getAttribute?.('type') || '').toLowerCase();
+    if (['password', 'hidden', 'file'].includes(type)) return true;
+    const label = [
+      element.getAttribute?.('name'),
+      element.getAttribute?.('id'),
+      element.getAttribute?.('autocomplete'),
+      element.getAttribute?.('placeholder'),
+      element.getAttribute?.('aria-label'),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return /(password|passwd|pwd|otp|one[-_ ]?time|token|secret|api[-_ ]?key|card number|cvv|cvc|ssn|social security|id[-_ ]?number)/.test(
+      label,
+    );
+  }
+
   function labelOf(element) {
     const type = (element.getAttribute?.('type') || '').toLowerCase();
-    const safeValue = type === 'password' ? '' : element.value;
+    const safeValue = type === 'password' || isSensitiveField(element) ? '' : element.value;
     const raw =
       element.getAttribute?.('aria-label') ||
       element.getAttribute?.('title') ||
@@ -329,11 +399,15 @@
 
   function refFor(element) {
     const existing = refByElement.get(element);
-    if (existing && registry.get(existing) === element) return existing;
+    if (existing && registry.get(existing) === element) {
+      snapshotRefs.add(existing);
+      return existing;
+    }
     refSequence += 1;
     const ref = `e${refSequence}`;
     registry.set(ref, element);
     refByElement.set(element, ref);
+    snapshotRefs.add(ref);
     if (registry.size > 400) {
       for (const [key, node] of registry) {
         if (!node.isConnected) registry.delete(key);
@@ -346,7 +420,6 @@
   function describeElement(element) {
     const rect = element.getBoundingClientRect();
     const type = (element.getAttribute('type') || '').toLowerCase();
-    const isPassword = type === 'password';
     const role = implicitRole(element);
     const result = {
       ref: refFor(element),
@@ -370,7 +443,7 @@
       result.checked = Boolean(element.checked);
     }
     if (
-      !isPassword &&
+      !isSensitiveField(element) &&
       'value' in element &&
       typeof element.value === 'string' &&
       element.value &&
@@ -385,7 +458,7 @@
     const needle = normalize(text).toLowerCase();
     const exact = [];
     const partial = [];
-    for (const element of document.querySelectorAll(INTERACTIVE)) {
+    for (const element of queryAllDeep(INTERACTIVE)) {
       if (!isVisibleElement(element)) continue;
       const label = labelOf(element).toLowerCase();
       if (!label) continue;
@@ -396,22 +469,27 @@
     return [...exact, ...partial];
   }
 
+  function findQueryElements(query) {
+    let selectorMatches = [];
+    try {
+      selectorMatches = queryAllDeep(query);
+    } catch {
+      return findByText(query);
+    }
+    if (selectorMatches.length > 0) return selectorMatches;
+    return findByText(query);
+  }
+
   function inspectPage(params = {}) {
-    const limit = Math.min(Math.max(Number(params.limit) || 20, 1), 40);
+    nextSnapshot();
+    const limit = Math.min(Math.max(Number(params.limit) || 24, 1), 80);
     const query = String(params.query || '').trim();
     let candidates;
 
     if (query) {
-      let nodes = [];
-      try {
-        nodes = Array.from(document.querySelectorAll(query));
-      } catch {
-        nodes = [];
-      }
-      if (nodes.length === 0) nodes = findByText(query);
-      candidates = nodes.filter(isVisibleElement);
+      candidates = findQueryElements(query).filter(isVisibleElement);
     } else {
-      const all = Array.from(document.querySelectorAll(INTERACTIVE)).filter(isVisibleElement);
+      const all = queryAllDeep(INTERACTIVE).filter(isVisibleElement);
       const inView = [];
       const offView = [];
       for (const element of all) {
@@ -432,6 +510,7 @@
 
     return {
       ok: true,
+      snapshotId,
       url: location.href,
       title: document.title,
       count: elements.length,
@@ -445,16 +524,20 @@
 
   function resolveTarget(params = {}) {
     if (params.ref) {
-      const element = registry.get(String(params.ref));
+      const ref = String(params.ref);
+      if (!snapshotRefs.has(ref)) {
+        return { error: `ref "${ref}" 属于旧快照，请重新 inspect_page` };
+      }
+      const element = registry.get(ref);
       if (!element || !element.isConnected) {
-        return { error: `ref "${params.ref}" 已失效，请重新 inspect_page` };
+        return { error: `ref "${ref}" 已失效，请重新 inspect_page` };
       }
       return { element };
     }
     if (params.selector) {
       let element = null;
       try {
-        element = document.querySelector(String(params.selector));
+        element = queryAllDeep(String(params.selector))[0] || null;
       } catch {
         return { error: `CSS 选择器不合法：${params.selector}` };
       }
@@ -495,16 +578,26 @@
     return labelOf(top) || top.tagName.toLowerCase();
   }
 
+  function pointTarget(params = {}) {
+    if (Number.isFinite(Number(params.x)) && Number.isFinite(Number(params.y))) {
+      const element = document.elementFromPoint(Number(params.x), Number(params.y));
+      if (!element) return { error: '该坐标没有可点击元素' };
+      return { element };
+    }
+    return resolveTarget(params);
+  }
+
   function clickElement(params = {}) {
-    const { element, error } = resolveTarget(params);
+    const { element, error } = pointTarget(params);
     if (error) return { ok: false, error };
     if (isDisabled(element)) return { ok: false, error: `“${labelOf(element)}”处于禁用状态` };
 
     const info = describeElement(element);
+    const beforeUrl = location.href;
     element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
+    const x = Number.isFinite(Number(params.x)) ? Number(params.x) : rect.left + rect.width / 2;
+    const y = Number.isFinite(Number(params.y)) ? Number(params.y) : rect.top + rect.height / 2;
     const blocker = coveredBy(element);
     flash(element);
     dispatchPointerSequence(element, x, y);
@@ -515,7 +608,199 @@
       clicked: info.name || info.tag,
       tag: info.tag,
       url: location.href,
+      beforeUrl,
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'clickDispatched', matched: false },
       warning: blocker ? `元素中心被“${blocker}”覆盖，点击可能没有生效` : undefined,
+    };
+  }
+
+  function doubleClickElement(params = {}) {
+    const { element, error } = pointTarget(params);
+    if (error) return { ok: false, error };
+    if (isDisabled(element)) return { ok: false, error: `“${labelOf(element)}”处于禁用状态` };
+    const info = describeElement(element);
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    flash(element);
+    dispatchPointerSequence(element, x, y);
+    dispatchPointerSequence(element, x, y);
+    element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+    return {
+      ok: true,
+      doubleClicked: info.name || info.tag,
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'doubleClickDispatched', matched: false },
+    };
+  }
+
+  function rightClickElement(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    const info = describeElement(element);
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    flash(element);
+    const base = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window, button: 2 };
+    element.dispatchEvent(new MouseEvent('mousedown', { ...base, buttons: 2 }));
+    element.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('contextmenu', base));
+    return {
+      ok: true,
+      rightClicked: info.name || info.tag,
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'contextMenuDispatched', matched: false },
+    };
+  }
+
+  function focusElement(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    element.focus({ preventScroll: true });
+    const active = document.activeElement;
+    return {
+      ok: true,
+      focused: labelOf(element) || element.tagName.toLowerCase(),
+      verified: active === element,
+      postcondition: { type: 'activeElement', matched: active === element },
+    };
+  }
+
+  function writeNativeValue(element, value) {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      const prototype =
+        element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter) setter.call(element, String(value));
+      else element.value = String(value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    }
+    if (element.isContentEditable) {
+      element.textContent = String(value);
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(value), inputType: 'insertText' }));
+      return true;
+    }
+    return false;
+  }
+
+  function clearElement(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    if (!writeNativeValue(element, '')) return { ok: false, error: '目标不是可清空的输入框' };
+    const actual = 'value' in element ? String(element.value || '') : String(element.textContent || '');
+    return {
+      ok: true,
+      cleared: labelOf(element) || element.tagName.toLowerCase(),
+      verified: actual.length === 0,
+      postcondition: { type: 'emptyValue', matched: actual.length === 0 },
+    };
+  }
+
+  function setChecked(params = {}, checked) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    if (!(element instanceof HTMLInputElement) || (type !== 'checkbox' && type !== 'radio')) {
+      return { ok: false, error: '目标不是 checkbox/radio' };
+    }
+    if (isDisabled(element)) return { ok: false, error: '目标处于禁用状态' };
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    if (Boolean(element.checked) !== Boolean(checked)) {
+      element.click();
+    }
+    return {
+      ok: true,
+      checked: Boolean(element.checked),
+      verified: Boolean(element.checked) === Boolean(checked),
+      postcondition: { type: 'checked', expected: Boolean(checked), actual: Boolean(element.checked) },
+    };
+  }
+
+  function selectText(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    element.focus({ preventScroll: true });
+    let length = 0;
+    let verified = false;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.select();
+      length = Math.abs((element.selectionEnd || 0) - (element.selectionStart || 0));
+      verified = length > 0 && element.selectionStart === 0;
+    } else if (element.isContentEditable) {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      length = String(selection || '').length;
+      verified = length > 0;
+    } else {
+      return { ok: false, error: '目标不是可选中文本的输入框' };
+    }
+    return {
+      ok: true,
+      selectedLength: length,
+      verified,
+      postcondition: { type: 'selectionLength', matched: verified, actual: length },
+    };
+  }
+
+  function getElementInfo(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    const sensitive = isSensitiveField(element);
+    const attributes = {};
+    for (const attr of Array.from(element.attributes || []).slice(0, 30)) {
+      if (attr.name === 'value' && (type === 'password' || sensitive)) continue;
+      attributes[attr.name] = String(attr.value).slice(0, 200);
+    }
+    return {
+      ok: true,
+      element: describeElement(element),
+      text: normalize(element.innerText || element.textContent || '').slice(0, 2000),
+      value:
+        type === 'password' || sensitive || !('value' in element)
+          ? undefined
+          : String(element.value || '').slice(0, 500),
+      checked: 'checked' in element ? Boolean(element.checked) : undefined,
+      selected: element instanceof HTMLOptionElement ? Boolean(element.selected) : undefined,
+      disabled: isDisabled(element),
+      visible: isVisibleElement(element),
+      attributes,
+      html: String(element.outerHTML || '').slice(0, 1200),
+      verified: true,
+      postcondition: { type: 'elementInfo', matched: true },
+    };
+  }
+
+  function scrollInside(params = {}) {
+    const { element, error } = resolveTarget(params);
+    if (error) return { ok: false, error };
+    const direction = params.direction || 'down';
+    const amount = Number(params.amount) || Math.round(element.clientHeight * 0.8) || 300;
+    if (direction === 'top') element.scrollTo({ top: 0, behavior: 'instant' });
+    else if (direction === 'bottom') element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
+    else if (direction === 'up') element.scrollBy({ top: -amount, behavior: 'instant' });
+    else element.scrollBy({ top: amount, behavior: 'instant' });
+    return {
+      ok: true,
+      scrollTop: Math.round(element.scrollTop),
+      scrollHeight: Math.round(element.scrollHeight),
+      clientHeight: Math.round(element.clientHeight),
+      verified: true,
+      postcondition: { type: 'scrollTop', actual: Math.round(element.scrollTop) },
     };
   }
 
@@ -598,33 +883,39 @@
     if (type === 'hidden' || type === 'file') {
       return { ok: false, error: `不支持填写 type=${type} 的输入框` };
     }
+    if (isSensitiveField(element)) {
+      return { ok: false, error: '拒绝填写验证码/令牌/密钥/银行卡等敏感字段，请让用户自己输入' };
+    }
 
     const text = String(params.text ?? '');
     element.scrollIntoView({ block: 'center', inline: 'nearest' });
     element.focus({ preventScroll: true });
     flash(element);
 
+    let next = text;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-      const prototype =
-        element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-      const next = params.clear === false ? `${element.value}${text}` : text;
-      if (setter) setter.call(element, next);
-      else element.value = next;
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-    } else if (element.isContentEditable) {
-      element.textContent = text;
-      element.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
-    } else {
+      next = params.clear === false ? `${element.value}${text}` : text;
+    } else if (!element.isContentEditable) {
       return { ok: false, error: '目标不是可输入的输入框' };
     }
 
+    if (!writeNativeValue(element, next)) {
+      return { ok: false, error: '目标不是可输入的输入框' };
+    }
+
+    const actual =
+      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? String(element.value || '')
+        : String(element.textContent || '');
+    const verified = actual === next;
     const submitted = params.submit ? submitFrom(element) : false;
     return {
       ok: true,
       field: labelOf(element) || element.tagName.toLowerCase(),
       length: text.length,
+      valueLength: actual.length,
+      verified,
+      postcondition: { type: 'inputValue', matched: verified, expectedLength: next.length, actualLength: actual.length },
       submitted,
       url: location.href,
     };
@@ -651,19 +942,60 @@
     element.value = match.value;
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
-    return { ok: true, selected: normalize(match.textContent), value: match.value };
+    return {
+      ok: true,
+      selected: normalize(match.textContent),
+      value: match.value,
+      verified: element.value === match.value,
+      postcondition: { type: 'selectedValue', expected: match.value, actual: element.value },
+    };
   }
 
   function pressKey(params = {}) {
-    const key = String(params.key || '');
-    if (!key) return { ok: false, error: '缺少 key' };
-    const target = document.activeElement || document.body;
-    for (const type of ['keydown', 'keypress', 'keyup']) {
-      target.dispatchEvent(
-        new KeyboardEvent(type, { key, code: key, bubbles: true, cancelable: true }),
-      );
+    const raw = String(params.key || '');
+    if (!raw) return { ok: false, error: '缺少 key' };
+    const parts = raw.split('+').map((part) => part.trim()).filter(Boolean);
+    const key = parts.length > 1 ? parts.at(-1) : raw;
+    const prefixModifiers = parts.slice(0, -1).map((part) => part.toLowerCase());
+    const modifiers = new Set(
+      [...(Array.isArray(params.modifiers) ? params.modifiers : []), ...prefixModifiers].map((modifier) =>
+        String(modifier).toLowerCase(),
+      ),
+    );
+    let target = document.activeElement || document.body;
+    if (params.ref || params.selector) {
+      const resolved = resolveTarget(params);
+      if (resolved.error) return { ok: false, error: resolved.error };
+      target = resolved.element;
+      target.focus({ preventScroll: true });
     }
-    return { ok: true, key, target: target.tagName.toLowerCase() };
+    const repeat = Math.min(Math.max(Number(params.repeat) || 1, 1), 20);
+    const init = {
+      key,
+      code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      ctrlKey: modifiers.has('control'),
+      shiftKey: modifiers.has('shift'),
+      altKey: modifiers.has('alt'),
+      metaKey: modifiers.has('meta'),
+    };
+    for (let index = 0; index < repeat; index += 1) {
+      for (const type of ['keydown', 'keypress', 'keyup']) {
+        target.dispatchEvent(new KeyboardEvent(type, init));
+      }
+    }
+    return {
+      ok: true,
+      key,
+      modifiers: [...modifiers],
+      repeat,
+      target: target.tagName.toLowerCase(),
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'keyDispatched', matched: false },
+    };
   }
 
   function scrollPage(params = {}) {
@@ -684,6 +1016,8 @@
       scrollY: Math.round(scrollY),
       viewport: Math.round(innerHeight),
       pageHeight: Math.round(document.documentElement.scrollHeight),
+      verified: true,
+      postcondition: { type: 'scrollY', actual: Math.round(scrollY) },
     };
   }
 
@@ -700,7 +1034,7 @@
     setTimeout(() => {
       location.href = url.href;
     }, 0);
-    return { ok: true, navigatedTo: url.href };
+    return { ok: true, navigatedTo: url.href, verified: true, postcondition: { type: 'navigation', url: url.href } };
   }
 
   function pointOf(params = {}) {
@@ -785,7 +1119,7 @@
     dispatchDragEvent(endElement, 'pointerup', to, 0);
     dispatchDragEvent(endElement, 'mouseup', to, 0);
 
-    return { ok: true, from, to, steps };
+    return { ok: true, from, to, steps, verified: false, uncertain: true, postcondition: { type: 'dragDispatched', matched: false } };
   }
 
   function setRange(params = {}) {
@@ -816,6 +1150,8 @@
       min,
       max,
       percent: max === min ? 0 : Math.round(((value - min) / (max - min)) * 100),
+      verified: Number(element.value) === value,
+      postcondition: { type: 'rangeValue', expected: value, actual: Number(element.value) },
     };
   }
 
@@ -899,18 +1235,23 @@
     if (picked.error) return { ok: false, error: picked.error };
     const media = picked.media;
     const action = String(params.action || 'status');
+    let expected = null;
 
     if (action === 'play') {
       const outcome = await tryPlay(media);
       if (!outcome.ok) return { ok: false, error: outcome.error };
+      expected = false;
     } else if (action === 'pause') {
       media.pause();
+      expected = true;
     } else if (action === 'toggle') {
       if (media.paused) {
         const outcome = await tryPlay(media);
         if (!outcome.ok) return { ok: false, error: outcome.error };
+        expected = false;
       } else {
         media.pause();
+        expected = true;
       }
     } else if (action === 'seek' || action === 'seek_by') {
       if (!Number.isFinite(media.duration) || media.duration <= 0) {
@@ -927,6 +1268,7 @@
         return { ok: false, error: 'seek 需要 percent 或 seconds' };
       }
       media.currentTime = Math.min(Math.max(target, 0), media.duration);
+      expected = media.currentTime;
     } else if (action === 'volume') {
       const value =
         params.volume != null
@@ -935,21 +1277,40 @@
       if (!Number.isFinite(value)) return { ok: false, error: 'volume 需要 volume(0-1) 或 percent' };
       media.volume = Math.min(Math.max(value, 0), 1);
       media.muted = media.volume === 0;
+      expected = media.volume;
     } else if (action === 'mute') {
       media.muted = true;
+      expected = true;
     } else if (action === 'unmute') {
       media.muted = false;
+      expected = false;
     } else if (action === 'toggle_mute') {
       media.muted = !media.muted;
+      expected = media.muted;
     } else if (action === 'rate') {
       const rate = Number(params.rate);
       if (!Number.isFinite(rate)) return { ok: false, error: 'rate 需要 0.25-4 之间的数字' };
       media.playbackRate = Math.min(Math.max(rate, 0.25), 4);
+      expected = media.playbackRate;
     } else if (action !== 'status') {
       return { ok: false, error: `未知媒体操作：${action}` };
     }
 
-    return { ok: true, action, media: mediaSnapshot(media) };
+    const snapshot = mediaSnapshot(media);
+    let verified = true;
+    if (action === 'play' || action === 'pause' || action === 'toggle') verified = media.paused === expected;
+    else if (action === 'seek' || action === 'seek_by') verified = Math.abs(media.currentTime - expected) <= 1.5;
+    else if (action === 'volume') verified = Math.abs(media.volume - expected) < 0.02;
+    else if (action === 'mute' || action === 'unmute' || action === 'toggle_mute') verified = media.muted === expected;
+    else if (action === 'rate') verified = Math.abs(media.playbackRate - expected) < 0.01;
+
+    return {
+      ok: true,
+      action,
+      media: snapshot,
+      verified,
+      postcondition: { type: `media:${action}`, matched: verified, expected },
+    };
   }
 
   function hoverElement(params = {}) {
@@ -987,6 +1348,9 @@
       ok: true,
       hovered: labelOf(element) || element.tagName.toLowerCase(),
       point: { x: Math.round(x), y: Math.round(y) },
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'hoverDispatched', matched: false },
     };
   }
 
@@ -997,6 +1361,24 @@
           return inspectPage(params);
         case 'click':
           return clickElement(params);
+        case 'double_click':
+          return doubleClickElement(params);
+        case 'right_click':
+          return rightClickElement(params);
+        case 'focus':
+          return focusElement(params);
+        case 'clear':
+          return clearElement(params);
+        case 'check':
+          return setChecked(params, true);
+        case 'uncheck':
+          return setChecked(params, false);
+        case 'select_text':
+          return selectText(params);
+        case 'get_element_info':
+          return getElementInfo(params);
+        case 'scroll_inside':
+          return scrollInside(params);
         case 'type_text':
           return typeIntoElement(params);
         case 'select_option':
