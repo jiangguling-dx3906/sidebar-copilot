@@ -753,6 +753,17 @@ async function main() {
 
     // --- CDP screenshot + accessibility tree through the model ----------
     await panel.click('#newChat');
+    await panel.evaluate(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get('settings', ({ settings }) => {
+            chrome.storage.local.set(
+              { settings: { ...settings, model: 'deepseek-flash', sendScreenshot: true } },
+              resolve,
+            );
+          });
+        }),
+    );
     mock.mode = 'cdp';
     agentBodies = [];
     await panel.fill('#input', '截图并读取页面结构');
@@ -771,6 +782,14 @@ async function main() {
     }));
     check('CDP screenshot is shown in the panel', cdpUiState.image, JSON.stringify(cdpUiState));
     check('CDP accessibility tree card rendered', cdpUiState.ax, JSON.stringify(cdpUiState));
+    for (let i = 0; i < 30 && agentBodies.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    const visionRequest = agentBodies[1] || { messages: [] };
+    const hasImage = (visionRequest.messages || []).some(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((part) => part?.type === 'image_url' && String(part.image_url?.url || '').startsWith('data:image/png')),
+    );
+    check('vision model receives the screenshot image', hasImage, JSON.stringify(visionRequest.messages?.length || 0));
 
     // --- long task: more than the old six-step limit ---------------------
     await panel.click('#newChat');

@@ -119,9 +119,9 @@
         <div class="field">
           <label class="check">
             <input id="sendScreenshot" type="checkbox" />
-            <span data-i18n="options.sendScreenshot">把截图发送给视觉模型</span>
+            <span data-i18n="options.sendScreenshot">自动发送截图给视觉模型</span>
           </label>
-          <small data-i18n="options.sendScreenshotHint">仅当当前模型支持图片输入时开启；DeepSeek chat 不支持，OpenAI gpt-4o-mini 等视觉模型支持。</small>
+          <small data-i18n="options.sendScreenshotHint">模型名匹配 deepseek-flash / GPT-4o / Gemini / Qwen-VL 等视觉模型时，截图会自动作为图片消息发送；deepseek-chat 是文本模型，不会发送。</small>
         </div>
 
         <div class="field">

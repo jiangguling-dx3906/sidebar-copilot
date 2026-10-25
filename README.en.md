@@ -17,7 +17,7 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 - **Continuous tasks and skills**: no six-step stop; the model keeps going until done or you press Stop, with form / media / extract / navigate / verify / inspect playbooks.
 - **Verified actions**: input, select, range, media, and scroll read the state back; results are Done / Uncertain / Failed and bound to `tabId + documentId + snapshotId`.
 - **Optional CDP enhancements**: `chrome.debugger` provides screenshots, the full accessibility tree, trusted mouse/keyboard input, closed-shadow node clicks, and file inputs from absolute paths.
-- **Optional vision**: with “Send screenshots to a vision model” enabled, `capture_screenshot` attaches the image to the next request; DeepSeek chat does not accept images, while OpenAI gpt-4o-mini and other vision models do.
+- **Optional vision**: with “Send screenshots to vision models automatically” enabled, `capture_screenshot` attaches the image to the next request when the model is image-capable. DeepSeek `deepseek-flash` accepts images; `deepseek-chat` is text-only. See the [DeepSeek vision guide](https://api-docs.deepseek.com/guides/vision/).
 - **Two-way desktop sync**: list DeepSeek Harness sessions read-only; after installing the desktop plugin, write extension conversations as real DSH sessions visible on both sides.
 - **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
 - **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
@@ -54,7 +54,7 @@ Open Settings (the welcome page button, or right-click the extension icon → Op
 
 | Preset | API base | Default model | Key |
 | --- | --- | --- | --- |
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-flash` | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | Local Ollama | `http://localhost:11434/v1` | `qwen2.5:7b` | not required |
 
@@ -161,7 +161,7 @@ With actions enabled, the model doesn't just tell you what to click — it execu
 | `hover` | Hovers to open menus or tooltips |
 | `tab_control` | Lists, opens, activates, reloads, goes back/forward, or closes tabs; closing the panel’s own tab is refused |
 | `skill` | Loads a playbook for form / media / extract / navigate / verify / inspect |
-| `capture_screenshot` | Captures the visible tab over CDP and shows it in the panel; optionally sends it to a vision model |
+| `capture_screenshot` | Captures the visible tab over CDP and shows it in the panel; vision models receive the image automatically |
 | `inspect_ax` | Reads the accessibility tree (iframes and closed shadow DOM included) and returns `backend_node_id` |
 | `cdp_click` / `cdp_type` / `cdp_key` | Trusted CDP mouse, text, and key input for controls that ignore synthetic events |
 | `cdp_upload` | Sets a file input from absolute paths you provide and confirm |
@@ -176,7 +176,7 @@ The current page is bound to `tabId + documentId + snapshotId`; after navigation
 
 When a task matches, the model calls `skill` for a step-by-step playbook (forms, media, extraction, tab navigation, verification, inspection); these are instructions, not hard-coded scripts.
 
-> Actions require function calling. DeepSeek `deepseek-chat` and OpenAI `gpt-4o-mini` support it; models without tool support only produce text suggestions.
+> Actions require function calling. DeepSeek `deepseek-flash` / `deepseek-chat` and OpenAI `gpt-4o-mini` support it; models without tool support only produce text suggestions.
 
 ![AI operating the page](docs/screenshots/panel-actions.png)
 
@@ -226,7 +226,7 @@ It returns real state (currentTime, duration, paused, volume, readyState), plus 
 - Custom dropdowns (`role=combobox`) take two steps (“click, then click the option”); native `<select>` works in one.
 - `ref`s expire when the page re-renders or navigates; the model re-runs `inspect_page`.
 - CDP enhancements must be enabled in Settings; Chromium shows a “started debugging” infobar while attached. Cross-origin iframes are supported at the accessibility-tree/coordinate level, not every iframe DOM query; file upload needs absolute paths.
-- To let the model see the screenshot, use a vision-capable model and enable “Send screenshots to a vision model”; DeepSeek chat is not a vision model.
+- To let the model see the screenshot, use an image-capable model (DeepSeek `deepseek-flash`, OpenAI gpt-4o, etc.) and keep “Send screenshots to vision models automatically” on; `deepseek-chat` is text-only.
 - Browser chrome (address bar, extension manager, PDF viewer) still cannot be operated; that is a Chromium permission boundary that CDP does not bypass.
 
 ## How it works
@@ -330,7 +330,7 @@ sidebar-copilot/
 
 **The model says it cannot read the page**: it's an internal page/PDF, or injection is blocked; try a regular page.
 
-**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v2.1.1.
+**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v2.1.2.
 
 **It can't see the video**: it truly cannot see pixels, but `control_media` can play/pause/seek/volume, and it can open captions, notes, or AI-summary panels and read the text. Describing the picture requires an image-capable model.
 

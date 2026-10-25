@@ -74,7 +74,7 @@ function fillForm(values) {
   el.allowPageActions.checked = values.allowPageActions !== false;
   el.confirmActions.checked = Boolean(values.confirmActions);
   el.useCdp.checked = values.useCdp !== false;
-  el.sendScreenshot.checked = Boolean(values.sendScreenshot);
+  el.sendScreenshot.checked = values.sendScreenshot !== false;
   el.maxAgentSteps.value = String(values.maxAgentSteps ?? 100);
   el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 100);
   el.dshSync.checked = Boolean(values.dshSync);

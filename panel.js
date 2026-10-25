@@ -9,6 +9,7 @@ import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 import { applyPanelTheme } from './lib/theme.js';
 import { getSkill } from './lib/skills.js';
 import { makeRequestId, sameDocument } from './lib/protocol.js';
+import { supportsVision } from './lib/vision.js';
 import * as cdp from './lib/cdp.js';
 
 const $ = (id) => document.getElementById(id);
@@ -926,14 +927,16 @@ async function executeCdpTool(action) {
 
   if (action.name === 'capture_screenshot') {
     const screenshot = await cdp.captureScreenshot(tabId);
-    state.pendingScreenshot = state.settings.sendScreenshot ? screenshot : '';
+    const vision = Boolean(state.settings.sendScreenshot) && supportsVision(state.settings.model);
+    state.pendingScreenshot = vision ? screenshot : '';
     return {
       ok: true,
       screenshot,
       verified: true,
-      note: state.settings.sendScreenshot
+      vision,
+      note: vision
         ? 'Screenshot captured and queued for the next visual-model request.'
-        : 'Screenshot captured for visual inspection; it is shown in the side panel.',
+        : 'Screenshot captured for visual inspection; it is shown in the side panel. Use a vision model (for example deepseek-flash) and enable screenshot sending for visual understanding.',
     };
   }
 
