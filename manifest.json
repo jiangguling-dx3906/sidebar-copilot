@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Sidebar Copilot",
   "short_name": "Sidebar Copilot",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "在任意网页右侧打开 AI 侧边栏，读取页面并直接对话；可让 AI 点击、输入、勾选、拖拽、切换标签页和控制视频。",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "scripting", "tabs", "contextMenus", "clipboardWrite", "debugger"],

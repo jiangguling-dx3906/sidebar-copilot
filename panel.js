@@ -89,6 +89,7 @@ const state = {
   historyOpen: false,
   documentId: '',
   snapshotId: '',
+  pendingScreenshot: '',
 };
 
 /* ------------------------------------------------------------------ */
@@ -693,6 +694,17 @@ async function runAgent() {
         pushToolResult(action);
       }
 
+      if (state.pendingScreenshot && state.settings.sendScreenshot) {
+        state.apiMessages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Current tab screenshot (visual context for this task):' },
+            { type: 'image_url', image_url: { url: state.pendingScreenshot } },
+          ],
+        });
+      }
+      state.pendingScreenshot = '';
+
       if (controller.signal.aborted) {
         assistant.stopped = true;
         assistant.streaming = false;
@@ -723,6 +735,7 @@ async function runAgent() {
         updateMessage(lastAssistant, state.messages.indexOf(lastAssistant));
       }
       state.controller = null;
+      state.pendingScreenshot = '';
       setBusy(false);
       setStatus();
       persist();
@@ -913,11 +926,14 @@ async function executeCdpTool(action) {
 
   if (action.name === 'capture_screenshot') {
     const screenshot = await cdp.captureScreenshot(tabId);
+    state.pendingScreenshot = state.settings.sendScreenshot ? screenshot : '';
     return {
       ok: true,
       screenshot,
       verified: true,
-      note: 'Screenshot captured for visual inspection; it is shown in the side panel.',
+      note: state.settings.sendScreenshot
+        ? 'Screenshot captured and queued for the next visual-model request.'
+        : 'Screenshot captured for visual inspection; it is shown in the side panel.',
     };
   }
 
