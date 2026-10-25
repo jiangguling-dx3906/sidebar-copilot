@@ -1,6 +1,6 @@
 {
   "name": "sidebar-copilot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Edge/Chrome side panel AI copilot with continuous page control: click, type, check, drag, scroll, tabs, media, and verified actions.",

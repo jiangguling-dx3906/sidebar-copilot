@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,8 +49,10 @@ const FIXTURE = `<!doctype html>
         <button id="greet" type="button">打个招呼</button>
         <button id="danger" type="button">删除全部</button>
         <label><input id="agree" type="checkbox"> 同意条款</label>
+        <input id="upload" type="file">
         <p id="output">尚未打招呼</p>
         <div id="shadow-host"></div>
+        <div id="closed-host"></div>
         <div id="scroller" style="height:60px;overflow:auto;border:1px solid #ccc">
           <div style="height:320px">可滚动内容</div>
           <button id="inside" type="button">内部按钮</button>
@@ -96,6 +98,11 @@ const FIXTURE = `<!doctype html>
     shadow.innerHTML = '<button id="shadow-btn" type="button">Shadow 按钮</button><input id="shadow-input" placeholder="shadow input">';
     shadow.querySelector('#shadow-btn').addEventListener('click', () => {
       document.getElementById('output').textContent = 'shadow clicked';
+    });
+    const closed = document.getElementById('closed-host').attachShadow({ mode: 'closed' });
+    closed.innerHTML = '<button id="closed-btn" type="button">隐藏按钮</button>';
+    closed.querySelector('#closed-btn').addEventListener('click', () => {
+      document.getElementById('output').textContent = 'closed clicked';
     });
 
     let dragging = false;
@@ -355,6 +362,78 @@ async function main() {
     });
     check('panel can see the fixture tab', Boolean(fixtureTabId));
 
+    const cdpState = await panel.evaluate(async (tabId) => {
+      try {
+        await chrome.debugger.attach({ tabId }, '1.3');
+        await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
+        await chrome.debugger.sendCommand({ tabId }, 'Accessibility.enable');
+        const shot = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'png' });
+        const ax = await chrome.debugger.sendCommand({ tabId }, 'Accessibility.getFullAXTree', {});
+        return { ok: true, shot: String(shot?.data || '').length > 100, ax: Array.isArray(ax?.nodes) && ax.nodes.length > 0 };
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+      } finally {
+        await chrome.debugger.detach({ tabId }).catch(() => {});
+      }
+    }, fixtureTabId);
+    check('CDP screenshot works', cdpState.ok && cdpState.shot, JSON.stringify(cdpState));
+    check('CDP accessibility tree works', cdpState.ok && cdpState.ax, JSON.stringify(cdpState));
+
+    const uploadPath = path.join(process.env.TEMP || '.', 'sidebar-copilot-upload.txt');
+    await writeFile(uploadPath, 'upload probe', 'utf8');
+
+    const cdpTools = await panel.evaluate(async ({ tabId, uploadPath }) => {
+      const module = await import(chrome.runtime.getURL('lib/cdp.js'));
+      try {
+        const nodes = await module.accessibilityTree(tabId, 300);
+        const button = nodes.find((node) => node.name.includes('打个招呼'));
+        const input = nodes.find((node) => node.role === 'textbox' && node.name.includes('你的名字'));
+        if (!button || !input) {
+          return { ok: false, error: 'AX targets not found', sample: nodes.slice(0, 8) };
+        }
+        await module.typeNode(tabId, input.backend_node_id, 'Bob');
+        await module.clickNode(tabId, button.backend_node_id);
+        const closed = nodes.find((node) => node.name.includes('隐藏按钮'));
+        if (closed) await module.clickNode(tabId, closed.backend_node_id);
+        const uploadId = await module.backendNodeForSelector(tabId, '#upload');
+        await module.setFileInput(tabId, uploadId, [uploadPath]);
+        return {
+          ok: true,
+          value: await module.nodeValue(tabId, input.backend_node_id),
+          closed: Boolean(closed),
+          upload: Boolean(uploadId),
+        };
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+      } finally {
+        await module.detach(tabId).catch(() => {});
+      }
+    }, { tabId: fixtureTabId, uploadPath });
+    const cdpPageState = await site.evaluate(() => ({
+      value: document.getElementById('name').value,
+      output: document.getElementById('output').textContent,
+      upload: document.getElementById('upload').files[0]?.name || '',
+    }));
+    check(
+      'CDP trusted type works',
+      cdpTools.ok && cdpTools.value === 'Bob' && cdpPageState.value === 'Bob',
+      JSON.stringify({ cdpTools, cdpPageState }),
+    );
+    check(
+      'CDP reaches closed shadow DOM',
+      cdpTools.ok && cdpTools.closed && cdpPageState.output === 'closed clicked',
+      JSON.stringify({ cdpTools, cdpPageState }),
+    );
+    check(
+      'CDP sets file input from a local path',
+      cdpTools.ok && cdpTools.upload && cdpPageState.upload === 'sidebar-copilot-upload.txt',
+      JSON.stringify({ cdpTools, cdpPageState }),
+    );
+    await site.evaluate(() => {
+      document.getElementById('name').value = '';
+      document.getElementById('output').textContent = '尚未打招呼';
+    });
+
     await panel.evaluate(
       (settings) =>
         new Promise((resolve) => chrome.storage.local.set({ settings, conversation: [] }, resolve)),
@@ -427,6 +506,20 @@ async function main() {
           return;
         }
         await fulfill(sseText('已经帮你填好名字并打了招呼。'));
+        return;
+      }
+
+      if (mock.mode === 'cdp') {
+        if (agentBodies.length === 1) {
+          await fulfill(
+            sseToolCalls([
+              { id: 'call_shot', name: 'capture_screenshot', args: {} },
+              { id: 'call_ax', name: 'inspect_ax', args: { limit: 80 } },
+            ]),
+          );
+          return;
+        }
+        await fulfill(sseText('已截图并读取无障碍树。'));
         return;
       }
 
@@ -657,6 +750,27 @@ async function main() {
     check('no action failed', mediaState.failed === 0, String(mediaState.failed));
 
     await shot(panel, 'panel-media.png');
+
+    // --- CDP screenshot + accessibility tree through the model ----------
+    await panel.click('#newChat');
+    mock.mode = 'cdp';
+    agentBodies = [];
+    await panel.fill('#input', '截图并读取页面结构');
+    await panel.press('#input', 'Enter');
+    await panel.waitForFunction(
+      () => document.querySelectorAll('.action-card').length >= 2 && Boolean(document.querySelector('img.action-shot')),
+      null,
+      { timeout: 40000 },
+    );
+    const cdpUiState = await panel.evaluate(() => ({
+      cards: document.querySelectorAll('.action-card').length,
+      image: Boolean(document.querySelector('img.action-shot')?.src.startsWith('data:image/png')),
+      ax: Array.from(document.querySelectorAll('.action-card')).some((card) =>
+        (card.textContent || '').includes('无障碍树'),
+      ),
+    }));
+    check('CDP screenshot is shown in the panel', cdpUiState.image, JSON.stringify(cdpUiState));
+    check('CDP accessibility tree card rendered', cdpUiState.ax, JSON.stringify(cdpUiState));
 
     // --- long task: more than the old six-step limit ---------------------
     await panel.click('#newChat');

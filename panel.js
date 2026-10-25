@@ -9,6 +9,7 @@ import { setLocale, applyI18n, t, getLocale } from './lib/i18n.js';
 import { applyPanelTheme } from './lib/theme.js';
 import { getSkill } from './lib/skills.js';
 import { makeRequestId, sameDocument } from './lib/protocol.js';
+import * as cdp from './lib/cdp.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -56,6 +57,15 @@ const ICONS = {
   send: '<path d="M12 19V5M6 11l6-6 6 6" />',
   stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />',
 };
+
+const CDP_TOOLS = new Set([
+  'capture_screenshot',
+  'inspect_ax',
+  'cdp_click',
+  'cdp_type',
+  'cdp_key',
+  'cdp_upload',
+]);
 
 const state = {
   settings: null,
@@ -244,6 +254,8 @@ function bindEvents() {
     if (state.busy) return;
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab || tab.url?.startsWith('chrome-extension://')) return;
+    const previous = state.tabId;
+    if (previous != null && previous !== tabId) cdp.detach(previous);
     readPage({ silent: true });
   });
 
@@ -251,6 +263,10 @@ function bindEvents() {
     if (tabId === state.tabId && changeInfo.status === 'complete' && !state.busy) {
       readPage({ silent: true });
     }
+  });
+
+  chrome.debugger?.onDetach.addListener((source) => {
+    if (source?.tabId != null) cdp.forget(source.tabId);
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -716,13 +732,16 @@ async function runAgent() {
 }
 
 function pushToolResult(action) {
+  const { screenshot: _screenshot, ...rest } =
+    action.result && typeof action.result === 'object' ? action.result : {};
   state.apiMessages.push({
     role: 'tool',
     tool_call_id: action.id,
     content: JSON.stringify({
       ok: action.status !== 'error',
       status: action.status,
-      ...(action.result && typeof action.result === 'object' ? action.result : {}),
+      ...rest,
+      ...(action.result?.screenshot ? { screenshot: true } : {}),
       ...(action.status === 'error' ? { error: action.error || action.status } : {}),
     }),
   });
@@ -786,6 +805,7 @@ async function executeTool(action) {
 
   if (action.name === 'tab_control') return tabControl(action.args || {});
   if (action.name === 'open_url' && action.args?.new_tab) return openInNewTab(action.args);
+  if (CDP_TOOLS.has(action.name)) return executeCdpTool(action);
 
   if (state.tabId == null) throw new Error(t('panel.noTab'));
   let tab = await getActiveTab().catch(() => null);
@@ -883,6 +903,86 @@ async function executeTool(action) {
     documentId: currentDocument,
     frameId: frameId ?? 0,
   };
+}
+
+async function executeCdpTool(action) {
+  if (!state.settings.useCdp) throw new Error(t('panel.cdpDisabled'));
+  if (state.tabId == null) throw new Error(t('panel.noTab'));
+  const tabId = state.tabId;
+  const args = action.args || {};
+
+  if (action.name === 'capture_screenshot') {
+    const screenshot = await cdp.captureScreenshot(tabId);
+    return {
+      ok: true,
+      screenshot,
+      verified: true,
+      note: 'Screenshot captured for visual inspection; it is shown in the side panel.',
+    };
+  }
+
+  if (action.name === 'inspect_ax') {
+    const nodes = await cdp.accessibilityTree(tabId, Math.min(Math.max(Number(args.limit) || 160, 20), 300));
+    return { ok: true, nodes, count: nodes.length, verified: true };
+  }
+
+  if (action.name === 'cdp_click') {
+    const backendNodeId = Number(args.backend_node_id);
+    if (!backendNodeId) throw new Error('需要 backend_node_id');
+    const center = await cdp.clickNode(tabId, backendNodeId, args.button === 'right' ? 'right' : 'left');
+    return {
+      ok: true,
+      backend_node_id: backendNodeId,
+      point: center,
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'trustedClickDispatched', matched: false },
+    };
+  }
+
+  if (action.name === 'cdp_type') {
+    const backendNodeId = Number(args.backend_node_id);
+    if (!backendNodeId) throw new Error('需要 backend_node_id');
+    const text = String(args.text ?? '');
+    const outcome = await cdp.typeNode(tabId, backendNodeId, text, {
+      clear: args.clear !== false,
+      submit: Boolean(args.submit),
+    });
+    const actual = outcome.actual ?? '';
+    return {
+      ok: true,
+      backend_node_id: backendNodeId,
+      valueLength: actual.length,
+      verified: actual === text,
+      postcondition: { type: 'inputValue', matched: actual === text, expectedLength: text.length, actualLength: actual.length },
+    };
+  }
+
+  if (action.name === 'cdp_key') {
+    await cdp.pressKey(tabId, String(args.key || ''), Array.isArray(args.modifiers) ? args.modifiers : [], args.repeat);
+    return {
+      ok: true,
+      key: args.key,
+      verified: false,
+      uncertain: true,
+      postcondition: { type: 'trustedKeyDispatched', matched: false },
+    };
+  }
+
+  if (action.name === 'cdp_upload') {
+    const backendNodeId = Number(args.backend_node_id);
+    if (!backendNodeId) throw new Error('需要 backend_node_id');
+    await cdp.setFileInput(tabId, backendNodeId, args.files || []);
+    return {
+      ok: true,
+      backend_node_id: backendNodeId,
+      files: (args.files || []).length,
+      verified: true,
+      postcondition: { type: 'fileInputSet', matched: true },
+    };
+  }
+
+  throw new Error(`未知 CDP 操作：${action.name}`);
 }
 
 async function tabControl(args = {}) {
@@ -1076,6 +1176,7 @@ function localizeActionError(message) {
 
 function stopStreaming() {
   state.controller?.abort();
+  if (state.tabId != null) cdp.detach(state.tabId);
   for (const message of state.messages) {
     for (const action of message.actions || []) {
       action.confirm?.resolve(false);
@@ -1108,6 +1209,7 @@ function newChat() {
   state.runId += 1;
   state.controller = null;
   setBusy(false);
+  if (state.tabId != null) cdp.detach(state.tabId);
 
   if (state.messages.length === 0) {
     closeHistory();
@@ -1593,13 +1695,22 @@ function buildActionCard(action) {
     card.appendChild(row);
   }
 
+  if (action.result?.screenshot) {
+    const image = document.createElement('img');
+    image.className = 'action-shot';
+    image.src = action.result.screenshot;
+    image.alt = 'Screenshot';
+    card.appendChild(image);
+  }
+
   if ((action.status === 'ok' || action.status === 'uncertain') && action.result) {
     const details = document.createElement('details');
     details.className = 'action-result';
     const summary = document.createElement('summary');
     summary.textContent = t('common.viewResult');
     const pre = document.createElement('pre');
-    pre.textContent = JSON.stringify(action.result, null, 2).slice(0, 2400);
+    const { screenshot: _screenshot, ...rest } = action.result;
+    pre.textContent = JSON.stringify(rest, null, 2).slice(0, 2400);
     details.append(summary, pre);
     card.appendChild(details);
   }

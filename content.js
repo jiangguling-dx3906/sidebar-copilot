@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   if (window.__SC_EXTRACT__ && window.__SC_EXTRACT_VERSION__ === VERSION) return;
   window.__SC_EXTRACT_VERSION__ = VERSION;
 

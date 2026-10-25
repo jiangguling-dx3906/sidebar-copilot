@@ -16,6 +16,7 @@
 - **让 AI 真的操作页面**：查看元素、点击/双击/右键、输入、勾选、清空、全选、拖拽、容器内滚动、切换标签页、控制视频进度/音量/倍速；支持开放 Shadow DOM。
 - **持续任务与技能**：不再 6 步就停，模型持续执行到完成或你点停止；内置 form / media / extract / navigate / verify / inspect 分步技能。
 - **动作可验证**：每次输入/选择/滑块/媒体/滚动都会读回实际状态，结果标为「完成 / 待确认 / 失败」；目标绑定 `tabId + documentId + snapshotId`。
+- **CDP 增强（可选）**：`chrome.debugger` 提供截图、完整无障碍树、真实鼠标/键盘输入、关闭 Shadow DOM 节点点击，以及按绝对路径设置文件输入。
 - **桌面端双向同步**：只读列出 DeepSeek Harness 会话；安装桌面端插件后，可把扩展会话写成 DSH 的合法 session，双向可见。
 - **多会话历史**：每次新对话都会保留，顶部时钟按钮打开列表，可切换、删除或导出为 JSON 存到本地；自动保存可以关掉。
 - **供应商记忆**：保存或测试连接会记住地址、模型和 Key，下次从「已保存的供应商」下拉框直接选；「恢复默认」不会删除 Key。
@@ -159,6 +160,10 @@ node scripts/install-dsh-plugin.mjs --uninstall
 | `hover` | 悬停展开菜单/提示 |
 | `tab_control` | 列出、新建、切换、刷新、前进/后退标签页；关闭当前侧边栏所在标签页会被拒绝 |
 | `skill` | 加载 form / media / extract / navigate / verify / inspect 分步操作手册 |
+| `capture_screenshot` | CDP 截取当前可见画面，侧边栏直接显示图片 |
+| `inspect_ax` | 读取浏览器无障碍树（含 iframe / 关闭 Shadow DOM），返回 `backend_node_id` |
+| `cdp_click` / `cdp_type` / `cdp_key` | 用 CDP 发真实鼠标、文本、按键；适合 DOM 合成事件无效的控件 |
+| `cdp_upload` | 用绝对路径设置文件输入；需要你提供路径并在确认框里允许 |
 
 任务会**持续执行直到完成或你点停止**，不再有“6 步就结束”的限制。设置里的默认 100 步只是防止失控的安全上限（20–300 可调）。每一步都会留下卡片，状态分为「完成 / 待确认 / 失败」：
 
@@ -219,8 +224,8 @@ node scripts/install-dsh-plugin.mjs --uninstall
 - canvas 画布、文件上传，以及跨域 iframe 内的点击/输入未实现（媒体控制除外）。
 - 自定义下拉框（`role=combobox`）需要模型改用「点击 + 点选项」两步；原生 `<select>` 一步完成。
 - 页面重新渲染后旧 `ref` 会失效，模型会重新 `inspect_page`。
-- 没有引入 `chrome.debugger`/CDP 截图或无障碍树；需要真实浏览器输入、画面或复杂 iframe 时属于后续扩展，不是当前能力。
-- `edge://`、`chrome://`、扩展商店、PDF 阅读器、`view-source:` 无法注入，任何扩展都操作不了；新建标签页本身也是 `edge://newtab`，请先打开真实网页。
+- CDP 增强需要在设置里开启；首次附加会显示“正在调试”提示。跨域 iframe 只能做到无障碍树/坐标级操作，不保证所有 iframe DOM 可直接查询；文件上传需要你提供绝对路径。
+- 浏览器地址栏、扩展管理页、PDF 阅读器等浏览器 UI 仍无法操作；这是 Chromium 的权限边界，CDP 也不能绕过。
 
 ## 工作原理
 
@@ -299,6 +304,7 @@ sidebar-copilot/
 │  ├─ agentTools.js       页面操作工具定义、动作文案、危险动作判定
 │  ├─ skills.js           form/media/extract/navigate/verify/inspect 技能手册
 │  ├─ protocol.js         目标绑定、请求 ID、verified/uncertain 分类
+│  ├─ cdp.js              debugger 附加、截图、AX 树、真实输入、文件输入
 │  ├─ i18n.js             中英文界面文案与切换
 │  ├─ theme.js            自定义背景色与明暗适配
 │  ├─ sessions.js         多会话历史、标题与导出
@@ -322,7 +328,7 @@ sidebar-copilot/
 
 **模型说读不到页面**：当前页是浏览器内部页/PDF，或注入被站点拦截；换普通网页再试。
 
-**在新建标签页上它说“我没有控制权”**：`edge://newtab` 属于浏览器内部页面，任何扩展都无法注入。先打开真实网页（http/https），必要时刷新一次；如果还不行，确认扩展已重新加载到 v2.0。
+**在新建标签页上它说“我没有控制权”**：`edge://newtab` 属于浏览器内部页面，任何扩展都无法注入。先打开真实网页（http/https），必要时刷新一次；如果还不行，确认扩展已重新加载到 v2.1。
 
 **视频读不到画面**：它确实看不到视频像素，但可以 `control_media` 播放/暂停/跳进度/调音量，也可以点开字幕、笔记、AI 总结面板再读文本。要让它直接描述画面，需要支持图片输入的模型。
 

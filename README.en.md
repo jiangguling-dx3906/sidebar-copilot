@@ -16,6 +16,7 @@ An Edge / Chrome side panel extension that opens an AI chat panel beside any web
 - **Actually operates the page**: inspect elements, click/double-click/right-click, type, check, clear, select text, drag, scroll inside containers, switch tabs, and control video progress/volume/speed; open shadow DOM supported.
 - **Continuous tasks and skills**: no six-step stop; the model keeps going until done or you press Stop, with form / media / extract / navigate / verify / inspect playbooks.
 - **Verified actions**: input, select, range, media, and scroll read the state back; results are Done / Uncertain / Failed and bound to `tabId + documentId + snapshotId`.
+- **Optional CDP enhancements**: `chrome.debugger` provides screenshots, the full accessibility tree, trusted mouse/keyboard input, closed-shadow node clicks, and file inputs from absolute paths.
 - **Two-way desktop sync**: list DeepSeek Harness sessions read-only; after installing the desktop plugin, write extension conversations as real DSH sessions visible on both sides.
 - **Conversation history**: every new chat is kept. The clock button lists them; switch, delete, or export to JSON on your computer. Auto-save can be turned off.
 - **Remembered providers**: saving or testing a connection remembers its URL, model, and key for the “Saved providers” dropdown; “Reset to defaults” never deletes your key.
@@ -159,6 +160,10 @@ With actions enabled, the model doesn't just tell you what to click — it execu
 | `hover` | Hovers to open menus or tooltips |
 | `tab_control` | Lists, opens, activates, reloads, goes back/forward, or closes tabs; closing the panel’s own tab is refused |
 | `skill` | Loads a playbook for form / media / extract / navigate / verify / inspect |
+| `capture_screenshot` | Captures the visible tab over CDP and shows it in the panel |
+| `inspect_ax` | Reads the accessibility tree (iframes and closed shadow DOM included) and returns `backend_node_id` |
+| `cdp_click` / `cdp_type` / `cdp_key` | Trusted CDP mouse, text, and key input for controls that ignore synthetic events |
+| `cdp_upload` | Sets a file input from absolute paths you provide and confirm |
 
 A task **keeps running until it finishes or you press Stop**; the old six-step limit is gone. The default 100-step setting is only a safety cap (20–300). Each step leaves a card with status **Done / Uncertain / Failed**:
 
@@ -219,8 +224,8 @@ It returns real state (currentTime, duration, paused, volume, readyState), plus 
 - Canvas, file uploads, and click/type inside cross-origin iframes are not implemented (media control excepted).
 - Custom dropdowns (`role=combobox`) take two steps (“click, then click the option”); native `<select>` works in one.
 - `ref`s expire when the page re-renders or navigates; the model re-runs `inspect_page`.
-- No `chrome.debugger`/CDP screenshots or accessibility tree yet; true browser input, pixels, and complex iframes are a later extension, not current behavior.
-- `edge://`, `chrome://`, the extension store, the PDF viewer, and `view-source:` cannot be injected — no extension can operate them. `edge://newtab` is one of them; open a real page first.
+- CDP enhancements must be enabled in Settings; Chromium shows a “started debugging” infobar while attached. Cross-origin iframes are supported at the accessibility-tree/coordinate level, not every iframe DOM query; file upload needs absolute paths.
+- Browser chrome (address bar, extension manager, PDF viewer) still cannot be operated; that is a Chromium permission boundary that CDP does not bypass.
 
 ## How it works
 
@@ -299,6 +304,7 @@ sidebar-copilot/
 │  ├─ agentTools.js       page-action tool definitions, labels, risk detection
 │  ├─ skills.js           form/media/extract/navigate/verify/inspect playbooks
 │  ├─ protocol.js         target binding, request IDs, verified/uncertain classification
+│  ├─ cdp.js              debugger attach, screenshots, AX tree, trusted input, file inputs
 │  ├─ i18n.js             Chinese/English UI strings and locale switching
 │  ├─ theme.js            custom background colors and readable palettes
 │  ├─ sessions.js         multi-conversation history, titles, export
@@ -322,7 +328,7 @@ sidebar-copilot/
 
 **The model says it cannot read the page**: it's an internal page/PDF, or injection is blocked; try a regular page.
 
-**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v2.0.
+**On a new tab it says “I have no browser control”**: `edge://newtab` is a browser-internal page that no extension can inject into. Open a real page (http/https) and refresh once; if it still happens, make sure the extension was reloaded to v2.1.
 
 **It can't see the video**: it truly cannot see pixels, but `control_media` can play/pause/seek/volume, and it can open captions, notes, or AI-summary panels and read the text. Describing the picture requires an image-capable model.
 

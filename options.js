@@ -21,6 +21,7 @@ const el = {
   historyLabel: document.getElementById('historyLabel'),
   allowPageActions: document.getElementById('allowPageActions'),
   confirmActions: document.getElementById('confirmActions'),
+  useCdp: document.getElementById('useCdp'),
   maxAgentSteps: document.getElementById('maxAgentSteps'),
   maxStepsLabel: document.getElementById('maxStepsLabel'),
   dshSync: document.getElementById('dshSync'),
@@ -71,6 +72,7 @@ function fillForm(values) {
   el.historyLabel.textContent = String(values.historyLimit ?? 12);
   el.allowPageActions.checked = values.allowPageActions !== false;
   el.confirmActions.checked = Boolean(values.confirmActions);
+  el.useCdp.checked = values.useCdp !== false;
   el.maxAgentSteps.value = String(values.maxAgentSteps ?? 100);
   el.maxStepsLabel.textContent = String(values.maxAgentSteps ?? 100);
   el.dshSync.checked = Boolean(values.dshSync);
@@ -272,6 +274,7 @@ function bind() {
       locale: settings.locale,
       panelBg: settings.panelBg,
       saveHistory: settings.saveHistory,
+      useCdp: settings.useCdp,
       dshSync: settings.dshSync,
       dshBridgeUrl: settings.dshBridgeUrl,
       dshServerUrl: settings.dshServerUrl,
@@ -301,6 +304,7 @@ function readForm() {
     includePage: settings.includePage !== false,
     allowPageActions: el.allowPageActions.checked,
     confirmActions: el.confirmActions.checked,
+    useCdp: el.useCdp.checked,
     maxAgentSteps: Math.max(20, Math.min(300, Number(el.maxAgentSteps.value) || 100)),
     systemExtra: el.systemExtra.value.trim(),
     locale: el.locale.value,

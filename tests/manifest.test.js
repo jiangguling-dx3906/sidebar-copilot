@@ -15,7 +15,7 @@ test('is a valid MV3 extension manifest', () => {
 });
 
 test('declares the permissions the side panel relies on', () => {
-  for (const permission of ['sidePanel', 'storage', 'scripting', 'tabs', 'contextMenus', 'clipboardWrite']) {
+  for (const permission of ['sidePanel', 'storage', 'scripting', 'tabs', 'contextMenus', 'clipboardWrite', 'debugger']) {
     assert.ok(manifest.permissions.includes(permission), permission);
   }
   assert.deepEqual(manifest.host_permissions, ['<all_urls>']);
